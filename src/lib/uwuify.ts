@@ -80,7 +80,7 @@ export async function uwuifyRepositoryMarkdownFiles(
       owner,
       repo,
       tree_sha: treeSha,
-      recursive: 1,
+      recursive: "1",
     });
     
     // Find all markdown files
