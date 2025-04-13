@@ -1,9 +1,5 @@
 // src/lib/uwuify.ts
 
-/**
- * Utility functions for uwuifying content in the Next.js application
- */
-
 import { Octokit } from '@octokit/rest';
 
 /**
