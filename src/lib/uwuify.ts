@@ -33,50 +33,41 @@ function uwuifyText(text: string): string {
  */
 export function uwuifyMarkdown(content: string): string {
   try {
-    // Preserve code blocks and other special content
-    const codeBlocks: string[] = [];
-    const inlineCode: string[] = [];
-    const links: string[] = [];
+    // Use a two-pass approach
+    // First pass: Extract and store all special content
+    const specialContent: string[] = [];
     
-    // Save code blocks (```...```)
-    let contentWithoutCode = content;
-    const codeBlockRegex = /```[\s\S]*?```/g;
-    contentWithoutCode = contentWithoutCode.replace(codeBlockRegex, (match) => {
-      codeBlocks.push(match);
-      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    // Generate a unique token that won't be affected by uwuification
+    const uniqueToken = `UWUIFY_TOKEN_${Date.now()}_`;
+    
+    // Extract code blocks
+    let processedContent = content.replace(/```[\s\S]*?```/g, (match) => {
+      const token = `${uniqueToken}${specialContent.length}`;
+      specialContent.push(match);
+      return token;
     });
     
-    // Save inline code (`...`)
-    const inlineCodeRegex = /`[^`]+`/g;
-    contentWithoutCode = contentWithoutCode.replace(inlineCodeRegex, (match) => {
-      inlineCode.push(match);
-      return `__INLINE_CODE_${inlineCode.length - 1}__`;
+    // Extract inline code
+    processedContent = processedContent.replace(/`[^`]+`/g, (match) => {
+      const token = `${uniqueToken}${specialContent.length}`;
+      specialContent.push(match);
+      return token;
     });
     
-    // Save links ([...](...)
-    const linkRegex = /\[.*?\]\(.*?\)/g;
-    contentWithoutCode = contentWithoutCode.replace(linkRegex, (match) => {
-      links.push(match);
-      return `__LINK_BLOCK_${links.length - 1}__`;
+    // Extract links
+    processedContent = processedContent.replace(/\[.*?\]\(.*?\)/g, (match) => {
+      const token = `${uniqueToken}${specialContent.length}`;
+      specialContent.push(match);
+      return token;
     });
     
-    // Uwuify the text
-    const uwuifiedContent = uwuifyText(contentWithoutCode);
+    // Second pass: Uwuify the remaining text
+    const uwuifiedContent = uwuifyText(processedContent);
     
-    // Restore code blocks
+    // Third pass: Restore all special content
     let finalContent = uwuifiedContent;
-    for (let i = 0; i < codeBlocks.length; i++) {
-      finalContent = finalContent.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
-    }
-    
-    // Restore inline code
-    for (let i = 0; i < inlineCode.length; i++) {
-      finalContent = finalContent.replace(`__INLINE_CODE_${i}__`, inlineCode[i]);
-    }
-    
-    // Restore links
-    for (let i = 0; i < links.length; i++) {
-      finalContent = finalContent.replace(`__LINK_BLOCK_${i}__`, links[i]);
+    for (let i = 0; i < specialContent.length; i++) {
+      finalContent = finalContent.replace(`${uniqueToken}${i}`, specialContent[i]);
     }
     
     return finalContent;
