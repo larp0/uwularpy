@@ -1,40 +1,85 @@
 // src/lib/uwuify.ts
 
 import { Octokit } from '@octokit/rest';
-import { exec } from 'child_process';
-import { promises as fs } from 'fs';
-import path from 'path';
-import os from 'os';
-import { promisify } from 'util';
-
-const execPromise = promisify(exec);
 
 /**
- * Uwuifies markdown content using the Rust-based uwuify tool
+ * Pure JavaScript implementation of uwuify for use in serverless environments
+ * 
+ * @param text - The text to uwuify
+ * @returns The uwuified text
+ */
+function uwuifyText(text: string): string {
+  // Basic uwuification rules
+  return text
+    .replace(/(?:r|l)/g, 'w')
+    .replace(/(?:R|L)/g, 'W')
+    .replace(/n([aeiou])/g, 'ny$1')
+    .replace(/N([aeiou])/g, 'Ny$1')
+    .replace(/N([AEIOU])/g, 'NY$1')
+    .replace(/ove/g, 'uv')
+    .replace(/OVE/g, 'UV')
+    .replace(/\!+/g, '! uwu')
+    .replace(/\?+/g, '? owo')
+    .replace(/\. /g, '~ ')
+    .replace(/th/g, 'd')
+    .replace(/Th/g, 'D');
+}
+
+/**
+ * Uwuifies markdown content while preserving special content
  * 
  * @param content - The markdown content to uwuify
  * @returns The uwuified content with preserved code blocks
  */
-export async function uwuifyMarkdown(content: string): Promise<string> {
+export function uwuifyMarkdown(content: string): string {
   try {
-    // Create temporary directory
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'uwuify-'));
-    const inputFile = path.join(tempDir, 'input.md');
-    const outputFile = path.join(tempDir, 'output.md');
+    // Preserve code blocks and other special content
+    const codeBlocks: string[] = [];
+    const inlineCode: string[] = [];
+    const links: string[] = [];
     
-    // Write content to input file
-    await fs.writeFile(inputFile, content, 'utf-8');
+    // Save code blocks (```...```)
+    let contentWithoutCode = content;
+    const codeBlockRegex = /```[\s\S]*?```/g;
+    contentWithoutCode = contentWithoutCode.replace(codeBlockRegex, (match) => {
+      codeBlocks.push(match);
+      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    });
     
-    // Run Rust-based uwuify command
-    await execPromise(`uwuify -t 32 "${inputFile}" "${outputFile}"`);
+    // Save inline code (`...`)
+    const inlineCodeRegex = /`[^`]+`/g;
+    contentWithoutCode = contentWithoutCode.replace(inlineCodeRegex, (match) => {
+      inlineCode.push(match);
+      return `__INLINE_CODE_${inlineCode.length - 1}__`;
+    });
     
-    // Read uwuified content
-    const uwuifiedContent = await fs.readFile(outputFile, 'utf-8');
+    // Save links ([...](...)
+    const linkRegex = /\[.*?\]\(.*?\)/g;
+    contentWithoutCode = contentWithoutCode.replace(linkRegex, (match) => {
+      links.push(match);
+      return `__LINK_BLOCK_${links.length - 1}__`;
+    });
     
-    // Clean up temporary files
-    await fs.rm(tempDir, { recursive: true, force: true });
+    // Uwuify the text
+    const uwuifiedContent = uwuifyText(contentWithoutCode);
     
-    return uwuifiedContent;
+    // Restore code blocks
+    let finalContent = uwuifiedContent;
+    for (let i = 0; i < codeBlocks.length; i++) {
+      finalContent = finalContent.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
+    }
+    
+    // Restore inline code
+    for (let i = 0; i < inlineCode.length; i++) {
+      finalContent = finalContent.replace(`__INLINE_CODE_${i}__`, inlineCode[i]);
+    }
+    
+    // Restore links
+    for (let i = 0; i < links.length; i++) {
+      finalContent = finalContent.replace(`__LINK_BLOCK_${i}__`, links[i]);
+    }
+    
+    return finalContent;
   } catch (error) {
     console.error('Error uwuifying content:', error);
     return content; // Return original content if uwuification fails
@@ -105,20 +150,25 @@ export async function uwuifyRepositoryMarkdownFiles(
         const content = Buffer.from(fileData.content, 'base64').toString();
         
         // Uwuify the content
-        const uwuifiedContent = await uwuifyMarkdown(content);
+        const uwuifiedContent = uwuifyMarkdown(content);
         
-        // Update the file with uwuified content
-        await octokit.repos.createOrUpdateFileContents({
-          owner,
-          repo,
-          path: file.path!,
-          message: `Uwuify ${file.path}`,
-          content: Buffer.from(uwuifiedContent).toString('base64'),
-          sha: fileData.sha,
-          branch,
-        });
-        
-        console.log(`Uwuified ${file.path}`);
+        // Only update if content actually changed
+        if (uwuifiedContent !== content) {
+          // Update the file with uwuified content
+          await octokit.repos.createOrUpdateFileContents({
+            owner,
+            repo,
+            path: file.path!,
+            message: `Uwuify ${file.path}`,
+            content: Buffer.from(uwuifiedContent).toString('base64'),
+            sha: fileData.sha,
+            branch,
+          });
+          
+          console.log(`Uwuified ${file.path}`);
+        } else {
+          console.log(`No changes needed for ${file.path}`);
+        }
       } else {
         console.log(`Skipping ${file.path} - not a single file or missing content property`);
       }
