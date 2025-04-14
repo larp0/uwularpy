@@ -100,24 +100,29 @@ export async function uwuifyRepositoryMarkdownFiles(
         ref: branch,
       });
       
-      // Decode the content
-      const content = Buffer.from(fileData.content, 'base64').toString();
-      
-      // Uwuify the content
-      const uwuifiedContent = uwuifyMarkdown(content);
-      
-      // Update the file with uwuified content
-      await octokit.repos.createOrUpdateFileContents({
-        owner,
-        repo,
-        path: file.path!,
-        message: `Uwuify ${file.path}`,
-        content: Buffer.from(uwuifiedContent).toString('base64'),
-        sha: fileData.sha,
-        branch,
-      });
-      
-      console.log(`Uwuified ${file.path}`);
+      // Check if fileData is a single file (not an array) and has content property
+      if (!Array.isArray(fileData) && 'content' in fileData) {
+        // Decode the content
+        const content = Buffer.from(fileData.content, 'base64').toString();
+        
+        // Uwuify the content
+        const uwuifiedContent = uwuifyMarkdown(content);
+        
+        // Update the file with uwuified content
+        await octokit.repos.createOrUpdateFileContents({
+          owner,
+          repo,
+          path: file.path!,
+          message: `Uwuify ${file.path}`,
+          content: Buffer.from(uwuifiedContent).toString('base64'),
+          sha: fileData.sha,
+          branch,
+        });
+        
+        console.log(`Uwuified ${file.path}`);
+      } else {
+        console.log(`Skipping ${file.path} - not a single file or missing content property`);
+      }
     }
   } catch (error) {
     console.error('Error uwuifying repository markdown files:', error);
