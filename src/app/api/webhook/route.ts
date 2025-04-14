@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
           }
           
           // Create a new branch
-          let branch;
+          let branch: string;
           try {
             branch = await createBranch(octokit, owner, repo, issueNumber);
             console.log(`Created branch: ${branch}`);
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
 }
 
 // Post an immediate reply comment
-async function postReplyComment(octokit: any, owner: string, repo: string, issueNumber: number) {
+async function postReplyComment(octokit: any, owner: string, repo: string, issueNumber: number): Promise<void> {
   try {
     // Post the reply comment
     await octokit.issues.createComment({
@@ -133,9 +133,9 @@ async function postReplyComment(octokit: any, owner: string, repo: string, issue
 }
 
 // Post an error comment to notify the user
-async function postErrorComment(octokit: any, owner: string, repo: string, issueNumber: number, requester: string, action: string, error: any) {
+async function postErrorComment(octokit: any, owner: string, repo: string, issueNumber: number, requester: string, action: string, error: any): Promise<void> {
   try {
-    const errorMessage = error.message || 'Unknown error';
+    const errorMessage = error && error.message ? error.message : 'Unknown error';
     await octokit.issues.createComment({
       owner,
       repo,
@@ -151,7 +151,7 @@ async function postErrorComment(octokit: any, owner: string, repo: string, issue
 }
 
 // Create a new branch from main
-async function createBranch(octokit: any, owner: string, repo: string, issueNumber: number) {
+async function createBranch(octokit: any, owner: string, repo: string, issueNumber: number): Promise<string> {
   try {
     // Get the SHA of the latest commit on the main branch
     const { data: refData } = await octokit.git.getRef({
@@ -244,7 +244,7 @@ async function getRepositoryStatistics(octokit: any, owner: string, repo: string
 }
 
 // Helper function to find all markdown files recursively
-async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, path: string = '') {
+async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, path: string = ''): Promise<Array<{path: string, size: number}>> {
   try {
     const { data: contents } = await octokit.repos.getContent({
       owner,
@@ -252,7 +252,7 @@ async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, p
       path,
     });
     
-    let markdownFiles = [];
+    let markdownFiles: Array<{path: string, size: number}> = [];
     
     for (const item of Array.isArray(contents) ? contents : [contents]) {
       if (item.type === 'file' && item.name.endsWith('.md')) {
@@ -277,21 +277,22 @@ async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, p
 function formatRepositoryStatistics(stats: RepoStats | undefined): string {
   if (!stats) return '';
   
-  // Format the last updated date
-  const lastUpdated = new Date(stats.lastUpdated).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-  
-  // Format the top languages
-  const topLanguages = Object.entries(stats.topLanguages)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([lang, bytes]) => `${lang} (${formatBytes(bytes)})`)
-    .join(', ');
-  
-  return `
+  try {
+    // Format the last updated date
+    const lastUpdated = new Date(stats.lastUpdated).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    
+    // Format the top languages
+    const topLanguages = Object.entries(stats.topLanguages || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([lang, bytes]) => `${lang} (${formatBytes(bytes)})`)
+      .join(', ');
+    
+    return `
 ## Repository Statistics 📊
 
 Here are some interesting insights about this repository:
@@ -300,13 +301,17 @@ Here are some interesting insights about this repository:
 - **Markdown Files:** ${stats.markdownFiles} (${Math.round((stats.markdownFiles / stats.totalFiles) * 100)}% of total)
 - **Total Markdown Size:** ${formatBytes(stats.totalMarkdownSize)}
 - **Average Markdown File Size:** ${formatBytes(stats.avgMarkdownSize)}
-- **Largest Markdown File:** \`${stats.largestFile.name}\` (${formatBytes(stats.largestFile.size)})
+- **Largest Markdown File:** \`${stats.largestFile.name || 'None'}\` (${formatBytes(stats.largestFile.size)})
 - **Contributors:** ${stats.contributors}
 - **Last Updated:** ${lastUpdated}
-- **Top Languages:** ${topLanguages}
+- **Top Languages:** ${topLanguages || 'None detected'}
 
 *These statistics were generated at the time of uwuification.*
 `;
+  } catch (error) {
+    console.error('Error formatting repository statistics:', error);
+    return ''; // Return empty string on error to avoid breaking the PR creation
+  }
 }
 
 // Helper function to format bytes to human-readable format
@@ -321,10 +326,17 @@ function formatBytes(bytes: number): string {
 }
 
 // Create a pull request
-async function createPullRequest(octokit: any, owner: string, repo: string, branch: string, issueNumber: number, requester: string, repoStats?: RepoStats) {
+async function createPullRequest(octokit: any, owner: string, repo: string, branch: string, issueNumber: number, requester: string, repoStats?: RepoStats): Promise<number> {
   try {
     // Format repository statistics if available
-    const statsSection = repoStats ? formatRepositoryStatistics(repoStats) : '';
+    let statsSection = '';
+    try {
+      statsSection = repoStats ? formatRepositoryStatistics(repoStats) : '';
+    } catch (statsError) {
+      console.error('Error formatting repository statistics:', statsError);
+      // Continue without statistics if formatting fails
+      statsSection = '';
+    }
     
     const { data: pullRequest } = await octokit.pulls.create({
       owner,
