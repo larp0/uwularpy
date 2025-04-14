@@ -1,41 +1,40 @@
 // src/lib/uwuify.ts
 
 import { Octokit } from '@octokit/rest';
+import { exec } from 'child_process';
+import { promises as fs } from 'fs';
+import path from 'path';
+import os from 'os';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
 
 /**
- * Uwuifies markdown content while preserving code blocks
+ * Uwuifies markdown content using the Rust-based uwuify tool
  * 
  * @param content - The markdown content to uwuify
  * @returns The uwuified content with preserved code blocks
  */
-export function uwuifyMarkdown(content: string): string {
+export async function uwuifyMarkdown(content: string): Promise<string> {
   try {
-    // Preserve code blocks
-    const codeBlocks: string[] = [];
+    // Create temporary directory
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'uwuify-'));
+    const inputFile = path.join(tempDir, 'input.md');
+    const outputFile = path.join(tempDir, 'output.md');
     
-    // Function to save code blocks and replace them with placeholders
-    const saveCodeBlock = (match: string) => {
-      codeBlocks.push(match);
-      return `CODE_BLOCK_${codeBlocks.length - 1}`;
-    };
+    // Write content to input file
+    await fs.writeFile(inputFile, content, 'utf-8');
     
-    // Save code blocks
-    let contentWithoutCode = content.replace(/```[\s\S]*?```/g, (match) => saveCodeBlock(match));
-    contentWithoutCode = contentWithoutCode.replace(/`[^`]*`/g, (match) => saveCodeBlock(match));
+    // Run Rust-based uwuify command
+    await execPromise(`uwuify -t 32 "${inputFile}" "${outputFile}"`);
     
-    // Import uwuify dynamically to avoid server/client mismatch issues
-    const uwuify = require('uwuify');
+    // Read uwuified content
+    const uwuifiedContent = await fs.readFile(outputFile, 'utf-8');
     
-    // Uwuify the text
-    const uwuifiedContent = uwuify.uwuify(contentWithoutCode);
+    // Clean up temporary files
+    await fs.rm(tempDir, { recursive: true, force: true });
     
-    // Restore code blocks
-    let finalContent = uwuifiedContent;
-    for (let i = 0; i < codeBlocks.length; i++) {
-      finalContent = finalContent.replace(`CODE_BLOCK_${i}`, codeBlocks[i]);
-    }
-    
-    return finalContent;
+    return uwuifiedContent;
   } catch (error) {
     console.error('Error uwuifying content:', error);
     return content; // Return original content if uwuification fails
@@ -106,7 +105,7 @@ export async function uwuifyRepositoryMarkdownFiles(
         const content = Buffer.from(fileData.content, 'base64').toString();
         
         // Uwuify the content
-        const uwuifiedContent = uwuifyMarkdown(content);
+        const uwuifiedContent = await uwuifyMarkdown(content);
         
         // Update the file with uwuified content
         await octokit.repos.createOrUpdateFileContents({
