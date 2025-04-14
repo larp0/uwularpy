@@ -2,7 +2,23 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedOctokit, verifyWebhookSignature } from '@/lib/github-auth';
-import { uwuifyRepositoryMarkdownFiles } from '@/lib/uwuify';
+import axios from 'axios';
+import { Octokit } from '@octokit/rest';
+
+// Koeyb API configuration
+const KOEYB_API_URL = 'https://app.koyeb.com/v1';
+const KOEYB_API_KEY = '2sdajy2jvjuskub3qnx11e067fdrjnrdizyx6q7wicl1t18fhoajjue4q4dix0nl';
+
+// Interface for GitHub context to be passed to the worker
+interface GitHubContext {
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  requester: string;
+  installationId: number;
+  branch?: string;
+  repoStats?: RepoStats;
+}
 
 // Interface for repository statistics
 interface RepoStats {
@@ -81,27 +97,46 @@ export async function POST(request: NextRequest) {
             // Keep repoStats as undefined instead of setting to null
           }
           
-          // Uwuify all markdown files in the repository
+          // Trigger Koeyb worker to handle the uwuification process
           try {
-            await uwuifyRepositoryMarkdownFiles(octokit, owner, repo, branch);
-            console.log('Uwuified all markdown files in the repository');
-          } catch (uwuifyError) {
-            console.error('Error uwuifying repository:', uwuifyError);
-            await postErrorComment(octokit, owner, repo, issueNumber, requester, 'uwuifying markdown files', uwuifyError);
-            return NextResponse.json({ error: 'Error uwuifying repository' }, { status: 500 });
-          }
-          
-          // Create a pull request
-          try {
-            const prNumber = await createPullRequest(octokit, owner, repo, branch, issueNumber, requester, repoStats);
-            console.log(`Created pull request #${prNumber}`);
-          } catch (prError) {
-            console.error('Error creating pull request:', prError);
-            await postErrorComment(octokit, owner, repo, issueNumber, requester, 'creating pull request', prError);
-            return NextResponse.json({ error: 'Error creating pull request' }, { status: 500 });
+            const context: GitHubContext = {
+              owner,
+              repo,
+              issueNumber,
+              requester,
+              installationId: body.installation.id,
+              branch,
+              repoStats
+            };
+            
+            const jobId = await triggerUwuifyWorker(context);
+            console.log(`Triggered Koeyb worker for uwuification, job ID: ${jobId}`);
+            
+            // Return success response immediately after triggering the worker
+            return NextResponse.json({ 
+              message: 'Webhook processed successfully', 
+              jobId: jobId 
+            }, { status: 200 });
+          } catch (workerError) {
+            console.error('Error triggering Koeyb worker:', workerError);
+            await postErrorComment(octokit, owner, repo, issueNumber, requester, 'triggering uwuification worker', workerError);
+            return NextResponse.json({ error: 'Error triggering uwuification worker' }, { status: 500 });
           }
         } catch (authError) {
           console.error('Error authenticating with GitHub:', authError);
+          try {
+            // Try to post an error comment even without authentication if possible
+            const errorMessage = authError instanceof Error ? authError.message : 'Unknown authentication error';
+            const tempOctokit = new Octokit(); // Create a non-authenticated Octokit instance
+            await tempOctokit.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              body: `@${requester} I encountered an error while authenticating with GitHub: \`${errorMessage}\`. Please check the repository settings and try again.`
+            });
+          } catch (commentError) {
+            console.error('Could not post error comment after authentication failure:', commentError);
+          }
           return NextResponse.json({ error: 'Error authenticating with GitHub' }, { status: 500 });
         }
       }
@@ -110,7 +145,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: 'Webhook processed successfully' }, { status: 200 });
   } catch (error) {
     console.error('Error processing webhook:', error);
-    return NextResponse.json({ error: 'Error processing webhook' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Error processing webhook', 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    }, { status: 500 });
   }
 }
 
@@ -325,39 +363,103 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Create a pull request
-async function createPullRequest(octokit: any, owner: string, repo: string, branch: string, issueNumber: number, requester: string, repoStats?: RepoStats): Promise<number> {
+/**
+ * Triggers a Koeyb worker to process the uwuification
+ * 
+ * @param context - The GitHub context needed for processing
+ * @returns A promise that resolves with the worker job ID
+ */
+async function triggerUwuifyWorker(context: GitHubContext): Promise<string> {
   try {
-    // Format repository statistics if available
-    let statsSection = '';
-    try {
-      statsSection = repoStats ? formatRepositoryStatistics(repoStats) : '';
-    } catch (statsError) {
-      console.error('Error formatting repository statistics:', statsError);
-      // Continue without statistics if formatting fails
-      statsSection = '';
-    }
-    
-    const { data: pullRequest } = await octokit.pulls.create({
-      owner,
-      repo,
-      title: `Uwuify markdown files (requested in #${issueNumber})`,
-      body: `This PR uwuifies all markdown files in the repository as requested by @${requester} in issue #${issueNumber}.${statsSection}`,
-      head: branch,
-      base: 'main',
-    });
-    
-    // Add a comment to the issue mentioning the requester
-    await octokit.issues.createComment({
-      owner,
-      repo,
-      issue_number: issueNumber,
-      body: `@${requester} I've created a pull request with uwuified markdown files: ${pullRequest.html_url}${repoStats ? '\n\nThe PR includes interesting statistics about your repository!' : ''}`
-    });
-    
-    return pullRequest.number;
+    // Configure the API request
+    const headers = {
+      'Authorization': `Bearer ${KOEYB_API_KEY}`,
+      'Content-Type': 'application/json'
+    };
+
+    // Create the request payload with all necessary context for the worker
+    const payload = {
+      task: 'uwuify',
+      context: {
+        ...context,
+        // Include additional metadata for tracking and debugging
+        requestTimestamp: new Date().toISOString(),
+        requestId: generateRequestId(),
+      }
+    };
+
+    // Make the API request to trigger the worker
+    const response = await axios.post(
+      `${KOEYB_API_URL}/worker-tasks`, 
+      payload,
+      { 
+        headers,
+        timeout: 10000 // 10 second timeout for the API request
+      }
+    );
+
+    // Return the job ID or other identifier from the response
+    return response.data.id || 'task-submitted';
   } catch (error) {
-    console.error('Error creating pull request:', error);
-    throw error; // Re-throw to be handled by the caller
+    // Handle different types of errors
+    if (axios.isAxiosError(error)) {
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        console.error('Koeyb API error response:', {
+          status: error.response.status,
+          data: error.response.data
+        });
+        throw new Error(`Koeyb API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('No response received from Koeyb API:', error.request);
+        throw new Error('No response received from Koeyb API. Please check your network connection and try again.');
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        console.error('Error setting up Koeyb API request:', error.message);
+        throw new Error(`Error setting up Koeyb API request: ${error.message}`);
+      }
+    } else {
+      // Handle non-Axios errors
+      console.error('Error triggering Koeyb worker:', error);
+      throw new Error(`Failed to trigger Koeyb worker: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+}
+
+/**
+ * Generates a unique request ID for tracking
+ * 
+ * @returns A unique ID string
+ */
+function generateRequestId(): string {
+  return `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+}
+
+/**
+ * Checks the status of a worker job
+ * 
+ * @param jobId - The ID of the worker job
+ * @returns A promise that resolves with the job status
+ */
+async function checkWorkerStatus(jobId: string): Promise<string> {
+  try {
+    const headers = {
+      'Authorization': `Bearer ${KOEYB_API_KEY}`
+    };
+
+    const response = await axios.get(
+      `${KOEYB_API_URL}/worker-tasks/${jobId}`,
+      { 
+        headers,
+        timeout: 5000 // 5 second timeout
+      }
+    );
+
+    return response.data.status;
+  } catch (error) {
+    console.error('Error checking worker status:', error);
+    throw new Error(`Failed to check worker status: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
