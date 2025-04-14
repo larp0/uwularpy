@@ -1,37 +1,68 @@
 // src/lib/uwuify.ts
 
 import { Octokit } from '@octokit/rest';
+import { exec } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { promisify } from 'util';
+
+const execPromise = promisify(exec);
+const writeFilePromise = promisify(fs.writeFile);
+const readFilePromise = promisify(fs.readFile);
+const unlinkPromise = promisify(fs.unlink);
 
 /**
- * Pure JavaScript implementation of uwuify for use in serverless environments
- * 
- * @param text - The text to uwuify
- * @returns The uwuified text
- */
-function uwuifyText(text: string): string {
-  // Basic uwuification rules
-  return text
-    .replace(/(?:r|l)/g, 'w')
-    .replace(/(?:R|L)/g, 'W')
-    .replace(/n([aeiou])/g, 'ny$1')
-    .replace(/N([aeiou])/g, 'Ny$1')
-    .replace(/N([AEIOU])/g, 'NY$1')
-    .replace(/ove/g, 'uv')
-    .replace(/OVE/g, 'UV')
-    .replace(/\!+/g, '! uwu')
-    .replace(/\?+/g, '? owo')
-    .replace(/\. /g, '~ ')
-    .replace(/th/g, 'd')
-    .replace(/Th/g, 'D');
-}
-
-/**
- * Uwuifies markdown content while preserving special content
+ * Uwuifies markdown content using the Rust uwuify binary
  * 
  * @param content - The markdown content to uwuify
  * @returns The uwuified content with preserved code blocks
  */
-export function uwuifyMarkdown(content: string): string {
+export async function uwuifyMarkdown(content: string): Promise<string> {
+  try {
+    // Create a temporary file for the input
+    const tempDir = os.tmpdir();
+    const inputFile = path.join(tempDir, `uwuify-input-${Date.now()}.md`);
+    const outputFile = path.join(tempDir, `uwuify-output-${Date.now()}.md`);
+    
+    // Write the content to the input file
+    await writeFilePromise(inputFile, content);
+    
+    try {
+      // Execute the Rust uwuify binary
+      await execPromise(`uwuify "${inputFile}" > "${outputFile}"`);
+      
+      // Read the uwuified content
+      const uwuifiedContent = await readFilePromise(outputFile, 'utf8');
+      
+      return uwuifiedContent;
+    } catch (execError) {
+      console.error('Error executing uwuify binary:', execError);
+      
+      // Fallback to simple uwuification if the binary fails
+      return fallbackUwuify(content);
+    } finally {
+      // Clean up temporary files
+      try {
+        await unlinkPromise(inputFile);
+        await unlinkPromise(outputFile);
+      } catch (cleanupError) {
+        console.error('Error cleaning up temporary files:', cleanupError);
+      }
+    }
+  } catch (error) {
+    console.error('Error in uwuifyMarkdown:', error);
+    return content; // Return original content if uwuification fails
+  }
+}
+
+/**
+ * Fallback uwuification function in case the Rust binary fails
+ * 
+ * @param text - The text to uwuify
+ * @returns The uwuified text
+ */
+function fallbackUwuify(text: string): string {
   try {
     // Use a two-pass approach
     // First pass: Extract and store all special content
@@ -41,7 +72,7 @@ export function uwuifyMarkdown(content: string): string {
     const uniqueToken = `UWUIFY_TOKEN_${Date.now()}_`;
     
     // Extract code blocks
-    let processedContent = content.replace(/```[\s\S]*?```/g, (match) => {
+    let processedContent = text.replace(/```[\s\S]*?```/g, (match) => {
       const token = `${uniqueToken}${specialContent.length}`;
       specialContent.push(match);
       return token;
@@ -62,7 +93,19 @@ export function uwuifyMarkdown(content: string): string {
     });
     
     // Second pass: Uwuify the remaining text
-    const uwuifiedContent = uwuifyText(processedContent);
+    const uwuifiedContent = processedContent
+      .replace(/(?:r|l)/g, 'w')
+      .replace(/(?:R|L)/g, 'W')
+      .replace(/n([aeiou])/g, 'ny$1')
+      .replace(/N([aeiou])/g, 'Ny$1')
+      .replace(/N([AEIOU])/g, 'NY$1')
+      .replace(/ove/g, 'uv')
+      .replace(/OVE/g, 'UV')
+      .replace(/\!+/g, '! uwu')
+      .replace(/\?+/g, '? owo')
+      .replace(/\. /g, '~ ')
+      .replace(/th/g, 'd')
+      .replace(/Th/g, 'D');
     
     // Third pass: Restore all special content
     let finalContent = uwuifiedContent;
@@ -72,8 +115,8 @@ export function uwuifyMarkdown(content: string): string {
     
     return finalContent;
   } catch (error) {
-    console.error('Error uwuifying content:', error);
-    return content; // Return original content if uwuification fails
+    console.error('Error in fallbackUwuify:', error);
+    return text; // Return original text if fallback uwuification fails
   }
 }
 
@@ -140,8 +183,8 @@ export async function uwuifyRepositoryMarkdownFiles(
         // Decode the content
         const content = Buffer.from(fileData.content, 'base64').toString();
         
-        // Uwuify the content
-        const uwuifiedContent = uwuifyMarkdown(content);
+        // Uwuify the content using the Rust binary
+        const uwuifiedContent = await uwuifyMarkdown(content);
         
         // Only update if content actually changed
         if (uwuifiedContent !== content) {
