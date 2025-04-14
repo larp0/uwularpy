@@ -71,14 +71,14 @@ export async function POST(request: NextRequest) {
           }
           
           // Gather repository statistics
-          let repoStats;
+          let repoStats: RepoStats | undefined = undefined;
           try {
             repoStats = await getRepositoryStatistics(octokit, owner, repo);
             console.log('Gathered repository statistics');
           } catch (statsError) {
             console.error('Error gathering repository statistics:', statsError);
             // Continue with the process even if stats gathering fails
-            repoStats = null;
+            // Keep repoStats as undefined instead of setting to null
           }
           
           // Uwuify all markdown files in the repository
@@ -274,7 +274,7 @@ async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, p
 }
 
 // Format repository statistics for display
-function formatRepositoryStatistics(stats: RepoStats): string {
+function formatRepositoryStatistics(stats: RepoStats | undefined): string {
   if (!stats) return '';
   
   // Format the last updated date
