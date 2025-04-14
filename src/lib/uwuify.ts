@@ -85,7 +85,7 @@ export async function uwuifyRepositoryMarkdownFiles(
     
     // Find all markdown files
     const markdownFiles = treeData.tree.filter(item => 
-      item.path.endsWith('.md') && item.type === 'blob'
+      item.path && item.path.endsWith('.md') && item.type === 'blob'
     );
     
     console.log(`Found ${markdownFiles.length} markdown files to uwuify`);
@@ -96,7 +96,7 @@ export async function uwuifyRepositoryMarkdownFiles(
       const { data: fileData } = await octokit.repos.getContent({
         owner,
         repo,
-        path: file.path,
+        path: file.path!,
         ref: branch,
       });
       
@@ -110,7 +110,7 @@ export async function uwuifyRepositoryMarkdownFiles(
       await octokit.repos.createOrUpdateFileContents({
         owner,
         repo,
-        path: file.path,
+        path: file.path!,
         message: `Uwuify ${file.path}`,
         content: Buffer.from(uwuifiedContent).toString('base64'),
         sha: fileData.sha,
