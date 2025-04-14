@@ -1,84 +1,84 @@
-# Repository Restoration Process
+# Wepositowy Westowation Pwocess
 
-This document outlines the process that was followed to restore the uwularpy repository after a force push deleted existing files.
+Dis document outwinyes de pwocess dat was fowwowed to westowe de uwuwawpy wepositowy aftew a fowce push deweted existing fiwes.
 
-## Issue Summary
+## Issue Summawy
 
-A force push to the repository accidentally deleted most of the existing files, leaving only a few updates. The repository was missing critical components:
+A fowce push to de wepositowy accidentawwy deweted most of de existing fiwes, weaving onwy a few updates~ De wepositowy was missing cwiticaw componyents:
 
-1. Missing dependencies in package.json:
-   - @octokit/auth-app
-   - @octokit/rest
+1~ Missing dependencies in package.json:
+   - @octokit/aud-app
+   - @octokit/west
    - uwuify
 
-2. Missing files and directories:
-   - src/lib directory with github-auth.ts and uwuify.ts
-   - Properly configured webhook route.ts file
-   - Documentation files
+2~ Missing fiwes and diwectowies:
+   - swc/wib diwectowy wid gidub-aud.ts and uwuify.ts
+   - Pwopewwy configuwed webhook woute.ts fiwe
+   - Documentation fiwes
 
-## Restoration Process
+## Westowation Pwocess
 
-The following steps were taken to restore the repository:
+De fowwowing steps wewe taken to westowe de wepositowy:
 
-1. **Examination of Repository State**
-   - Analyzed the current state of the repository
-   - Identified all missing components and files
+1~ **Examinyation of Wepositowy State**
+   - Anyawyzed de cuwwent state of de wepositowy
+   - Identified aww missing componyents and fiwes
 
-2. **Backup Creation**
-   - Created a backup of the current state before making any changes
-   - Preserved any existing files to avoid further data loss
+2~ **Backup Cweation**
+   - Cweated a backup of de cuwwent state befowe making any changes
+   - Pwesewved any existing fiwes to avoid fuwdew data woss
 
-3. **Repository Structure Restoration**
-   - Created the missing src/lib directory
-   - Added the github-auth.ts and uwuify.ts files
-   - Restored the webhook route.ts file with the immediate reply feature
-   - Added documentation files (DEPLOYMENT.md, TESTING.md)
+3~ **Wepositowy Stwuctuwe Westowation**
+   - Cweated de missing swc/wib diwectowy
+   - Added de gidub-aud.ts and uwuify.ts fiwes
+   - Westowed de webhook woute.ts fiwe wid de immediate wepwy featuwe
+   - Added documentation fiwes (DEPWOYMENT.md, TESTING.md)
 
-4. **Package.json Update**
-   - Added the missing dependencies to package.json:
-     - @octokit/auth-app
-     - @octokit/rest
+4~ **Package.json Update**
+   - Added de missing dependencies to package.json:
+     - @octokit/aud-app
+     - @octokit/west
      - uwuify
-   - Preserved other necessary dependencies and configurations
+   - Pwesewved odew nyecessawy dependencies and configuwations
 
-5. **Git Challenges Resolution**
-   - Handled divergent branches issue
-   - Resolved "unrelated histories" error using --allow-unrelated-histories
-   - Fixed merge conflicts in package.json
-   - Pushed changes without using force to preserve repository history
+5~ **Git Chawwenges Wesowution**
+   - Handwed divewgent bwanches issue
+   - Wesowved "unwewated histowies" ewwow using --awwow-unwewated-histowies
+   - Fixed mewge confwicts in package.json
+   - Pushed changes widout using fowce to pwesewve wepositowy histowy
 
-## Lessons Learned
+## Wessons Weawnyed
 
-1. **Avoid Force Push**
-   - Never use `git push -f` on shared repositories unless absolutely necessary
-   - When force push is required, use it with extreme caution and specific branch targeting
+1~ **Avoid Fowce Push**
+   - Nyevew use `git push -f` on shawed wepositowies unwess absowutewy nyecessawy
+   - When fowce push is wequiwed, use it wid extweme caution and specific bwanch tawgeting
 
-2. **Regular Backups**
-   - Maintain regular backups of critical repository code
-   - Consider using GitHub Actions to automate backups
+2~ **Weguwaw Backups**
+   - Maintain weguwaw backups of cwiticaw wepositowy code
+   - Considew using GitHub Actions to automate backups
 
-3. **Branch Protection**
-   - Enable branch protection rules for important branches
-   - Require pull requests for changes to main branch
-   - Disable force pushes to protected branches
+3~ **Bwanch Pwotection**
+   - Enyabwe bwanch pwotection wuwes fow impowtant bwanches
+   - Wequiwe puww wequests fow changes to main bwanch
+   - Disabwe fowce pushes to pwotected bwanches
 
-## Maintenance Recommendations
+## Maintenyance Wecommendations
 
-1. **Repository Structure**
-   - Maintain the current structure with src/lib for shared utilities
-   - Keep the webhook handler in src/app/api/webhook/route.ts
+1~ **Wepositowy Stwuctuwe**
+   - Maintain de cuwwent stwuctuwe wid swc/wib fow shawed utiwities
+   - Keep de webhook handwew in swc/app/api/webhook/woute.ts
 
-2. **Dependencies**
-   - Regularly update dependencies for security and performance
-   - Ensure @octokit/auth-app, @octokit/rest, and uwuify remain in package.json
+2~ **Dependencies**
+   - Weguwawwy update dependencies fow secuwity and pewfowmance
+   - Ensuwe @octokit/aud-app, @octokit/west, and uwuify wemain in package.json
 
-3. **Documentation**
-   - Keep documentation files up to date
-   - Refer to DEPLOYMENT.md for deployment instructions
-   - Refer to TESTING.md for testing procedures
+3~ **Documentation**
+   - Keep documentation fiwes up to date
+   - Wefew to DEPWOYMENT.md fow depwoyment instwuctions
+   - Wefew to TESTING.md fow testing pwoceduwes
 
-4. **Version Control**
-   - Use feature branches for new development
-   - Create pull requests for code reviews
-   - Avoid direct commits to main branch
-   - Never use force push on shared branches
+4~ **Vewsion Contwow**
+   - Use featuwe bwanches fow nyew devewopment
+   - Cweate puww wequests fow code weviews
+   - Avoid diwect commits to main bwanch
+   - Nyevew use fowce push on shawed bwanches
