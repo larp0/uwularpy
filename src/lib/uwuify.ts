@@ -121,7 +121,7 @@ function fallbackUwuify(text: string): string {
 }
 
 /**
- * Processes all markdown files in a repository and uwuifies them
+ * Processes all markdown files in a repository and uwuifies them in a single commit
  * 
  * @param octokit - Authenticated Octokit instance
  * @param owner - Repository owner
@@ -135,7 +135,7 @@ export async function uwuifyRepositoryMarkdownFiles(
   branch: string
 ): Promise<void> {
   try {
-    // Get the tree of the branch
+    // Get the reference to the branch
     const { data: refData } = await octokit.git.getRef({
       owner,
       repo,
@@ -168,6 +168,10 @@ export async function uwuifyRepositoryMarkdownFiles(
     
     console.log(`Found ${markdownFiles.length} markdown files to uwuify`);
     
+    // Array to store all file changes
+    const fileChanges = [];
+    const modifiedPaths = [];
+    
     // Process each markdown file
     for (const file of markdownFiles) {
       // Get the content of the file
@@ -186,26 +190,55 @@ export async function uwuifyRepositoryMarkdownFiles(
         // Uwuify the content using the Rust binary
         const uwuifiedContent = await uwuifyMarkdown(content);
         
-        // Only update if content actually changed
+        // Only add to changes if content actually changed
         if (uwuifiedContent !== content) {
-          // Update the file with uwuified content
-          await octokit.repos.createOrUpdateFileContents({
-            owner,
-            repo,
+          fileChanges.push({
             path: file.path!,
-            message: `Uwuify ${file.path}`,
-            content: Buffer.from(uwuifiedContent).toString('base64'),
-            sha: fileData.sha,
-            branch,
+            mode: '100644', // Regular file mode
+            type: 'blob',
+            content: uwuifiedContent,
           });
           
-          console.log(`Uwuified ${file.path}`);
+          modifiedPaths.push(file.path!);
+          console.log(`Prepared uwuified content for ${file.path}`);
         } else {
           console.log(`No changes needed for ${file.path}`);
         }
       } else {
         console.log(`Skipping ${file.path} - not a single file or missing content property`);
       }
+    }
+    
+    // If there are changes, create a single commit with all changes
+    if (fileChanges.length > 0) {
+      // Create a new tree with all the changes
+      const { data: newTree } = await octokit.git.createTree({
+        owner,
+        repo,
+        base_tree: treeSha,
+        tree: fileChanges,
+      });
+      
+      // Create a commit with the new tree
+      const { data: newCommit } = await octokit.git.createCommit({
+        owner,
+        repo,
+        message: `Uwuify ${fileChanges.length} markdown files`,
+        tree: newTree.sha,
+        parents: [commitSha],
+      });
+      
+      // Update the branch reference to point to the new commit
+      await octokit.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha: newCommit.sha,
+      });
+      
+      console.log(`Created a single commit with ${fileChanges.length} uwuified files: ${modifiedPaths.join(', ')}`);
+    } else {
+      console.log('No files were modified, no commit needed');
     }
   } catch (error) {
     console.error('Error uwuifying repository markdown files:', error);
