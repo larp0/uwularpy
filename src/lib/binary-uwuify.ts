@@ -75,10 +75,15 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     logger.log(`Creating branch: ${branchName}`);
     execSync(`git checkout -b ${branchName}`, { stdio: 'inherit', cwd: tempDir });
 
-    // Always set Git identity to ensure we can commit
-    logger.log("Setting Git identity for commit operations");
-    execSync('git config user.email "uwularpy-bot@larp.dev"', { stdio: 'inherit', cwd: tempDir });
-    execSync('git config user.name "uwularpy bot"', { stdio: 'inherit', cwd: tempDir });
+    // Always explicitly set Git identity for this repository
+    // This is crucial for the git commit to work
+    logger.log("Explicitly setting Git identity");
+    execSync('git config user.email "uwuify-bot@example.com"', { stdio: 'inherit', cwd: tempDir });
+    execSync('git config user.name "UwUify Bot"', { stdio: 'inherit', cwd: tempDir });
+
+    // Display current git config to debug
+    logger.log("Verifying Git identity configuration:");
+    execSync('git config --list | grep user.', { stdio: 'inherit', cwd: tempDir });
 
     logger.log("Running uwuify via optimized bash script");
 
@@ -116,25 +121,16 @@ fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xar
     spawnSync(bashScriptPath, [tempDir, uwuifyBinaryPath], { stdio: 'inherit' });
     fs.unlinkSync(bashScriptPath);
 
-    logger.log("Committing changes");
-    execSync('git add .', { stdio: 'inherit', cwd: tempDir });
+    logger.log("Checking for changes");
+    const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
     
-    // Try to commit, with better error handling
-    try {
+    if (!gitStatus) {
+      logger.log("No changes were made to markdown files. Creating empty commit.");
+      execSync('git commit --allow-empty -m "uwu (no changes found)"', { stdio: 'inherit', cwd: tempDir });
+    } else {
+      logger.log(`Changes detected: ${gitStatus.split("\n").length} files modified`);
+      execSync('git add .', { stdio: 'inherit', cwd: tempDir });
       execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
-    } catch (commitError) {
-      logger.error(`Git commit failed: ${commitError instanceof Error ? commitError.message : 'Unknown error'}`);
-      
-      // Check if there are any changes to commit
-      const status = execSync('git status --porcelain', { stdio: 'pipe', cwd: tempDir }).toString();
-      if (!status.trim()) {
-        logger.warn("No changes to commit - this may be expected if no markdown files were modified");
-        // Create an empty commit to ensure we have something to push
-        execSync('git commit --allow-empty -m "uwu (no changes)"', { stdio: 'inherit', cwd: tempDir });
-      } else {
-        // There are changes but commit still failed - rethrow
-        throw commitError;
-      }
     }
 
     logger.log("Configuring Git for push");
