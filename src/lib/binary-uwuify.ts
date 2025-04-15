@@ -113,7 +113,7 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
       if (fileCount === 0) {
         logger.warn("No markdown files found to process!");
       } else {
-        logger.log("Markdown files found:", mdFiles.split('\n').slice(0, 10).join('\n'));
+        logger.log("Markdown files found", { files: mdFiles.split('\n').slice(0, 10).join('\n') });
       }
     } catch (e) {
       logger.error(`Error finding markdown files: ${e instanceof Error ? e.message : 'Unknown error'}`);
@@ -141,7 +141,7 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     `;
     
     const processOutput = execSync(processFiles, { encoding: 'utf-8', shell: '/bin/bash' });
-    logger.log("Process output:", processOutput);
+    logger.log("Process output", { output: processOutput });
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
