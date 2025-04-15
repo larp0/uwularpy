@@ -1,4 +1,5 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
+import { additionalFiles } from "@trigger.dev/sdk/v3/build/extensions";
 
 export default defineConfig({
   project: "proj_xadoucnepuzlmbifjvgz",
@@ -19,8 +20,12 @@ export default defineConfig({
     },
   },
   dirs: ["./src/trigger"],
-  // Temporarily remove additionalFiles extension until we find the correct import path
+  // Add additionalFiles extension to include the uwuify binary
   build: {
-    extensions: []
+    extensions: [
+      additionalFiles({
+        files: ["src/lib/bin/uwuify"]
+      })
+    ]
   }
 });

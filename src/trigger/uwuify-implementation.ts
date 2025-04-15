@@ -4,7 +4,7 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext, RepoStats } from "../services/task-types";
-import { uwuifyText } from "../lib/rust-uwuify"; // Import the Rust uwuify implementation
+import { uwuifyRepository, getTopContributorsByMergedPRs } from "../lib/binary-uwuify";
 
 // Export the implementation function
 export async function runUwuifyTask(payload: GitHubContext, ctx: any) {
@@ -18,41 +18,38 @@ export async function runUwuifyTask(payload: GitHubContext, ctx: any) {
     await postReplyComment(octokit, payload.owner, payload.repo, payload.issueNumber);
     logger.log("Posted initial reply comment");
     
-    // Create a new branch
-    const branch = await createBranch(octokit, payload.owner, payload.repo, payload.issueNumber);
-    logger.log("Created branch", { branch });
+    // Create a new branch name
+    const branchName = `uwuify-issue-${payload.issueNumber}`;
+    logger.log("Using branch name", { branchName });
+    
+    // Clone and process the repository using the binary
+    const repoUrl = `https://github.com/${payload.owner}/${payload.repo}.git`;
+    const repoDir = await uwuifyRepository(repoUrl, branchName);
+    logger.log("Processed repository", { repoDir });
     
     // Gather repository statistics
     let repoStats: RepoStats | undefined;
     try {
       repoStats = await getRepositoryStatistics(octokit, payload.owner, payload.repo);
+      
+      // Get top contributors by merged PRs
+      const topContributors = getTopContributorsByMergedPRs(repoDir, 5);
+      if (repoStats && topContributors.length > 0) {
+        repoStats.topContributors = topContributors;
+      }
+      
       logger.log("Gathered repository statistics", { repoStats });
     } catch (statsError) {
       logger.error("Error gathering repository statistics", { error: statsError });
       // Continue with the process even if stats gathering fails
     }
-
-    // Find all markdown files in the repository
-    const markdownFiles = await findAllMarkdownFiles(octokit, payload.owner, payload.repo);
-    logger.log("Found markdown files", { count: markdownFiles.length });
-
-    // Process each markdown file
-    const processedFiles = await uwuifyRepositoryMarkdownFiles(
-      octokit,
-      payload.owner,
-      payload.repo,
-      branch,
-      markdownFiles
-    );
     
-    logger.log("Processed files", { count: processedFiles.length });
-
     // Create a pull request with the changes
     const prUrl = await createPullRequest(
       octokit,
       payload.owner,
       payload.repo,
-      branch,
+      branchName,
       payload.issueNumber,
       repoStats
     );
@@ -74,7 +71,6 @@ export async function runUwuifyTask(payload: GitHubContext, ctx: any) {
     return {
       success: true,
       prUrl,
-      filesProcessed: processedFiles.length,
     };
   } catch (error) {
     logger.error("Error in uwuification process", { error });
@@ -159,35 +155,6 @@ async function postErrorComment(octokit: any, owner: string, repo: string, issue
   } catch (commentError) {
     logger.error('Error posting error comment:', { error: commentError });
     // We don't throw here as this is already error handling
-  }
-}
-
-// Create a new branch from main
-async function createBranch(octokit: any, owner: string, repo: string, issueNumber: number): Promise<string> {
-  try {
-    // Get the SHA of the latest commit on the main branch
-    const { data: refData } = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: 'heads/main',
-    });
-    
-    const mainSha = refData.object.sha;
-    
-    // Create a new branch
-    const branchName = `uwuify-issue-${issueNumber}`;
-    
-    await octokit.git.createRef({
-      owner,
-      repo,
-      ref: `refs/heads/${branchName}`,
-      sha: mainSha,
-    });
-    
-    return branchName;
-  } catch (error) {
-    logger.error('Error creating branch:', { error });
-    throw error; // Re-throw to be handled by the caller
   }
 }
 
@@ -285,108 +252,6 @@ async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, p
   }
 }
 
-// Process all markdown files in the repository
-async function uwuifyRepositoryMarkdownFiles(
-  octokit: any,
-  owner: string,
-  repo: string,
-  branch: string,
-  markdownFiles: Array<{path: string, size: number}>
-): Promise<string[]> {
-  try {
-    // Get the current commit SHA for the branch
-    const { data: refData } = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${branch}`,
-    });
-    
-    const branchSha = refData.object.sha;
-    
-    // Get the current tree
-    const { data: commitData } = await octokit.git.getCommit({
-      owner,
-      repo,
-      commit_sha: branchSha,
-    });
-    
-    const treeSha = commitData.tree.sha;
-    
-    // Process each markdown file and collect the changes
-    const changes = [];
-    const processedFiles = [];
-    
-    for (const file of markdownFiles) {
-      try {
-        // Get the file content
-        const { data: fileData } = await octokit.repos.getContent({
-          owner,
-          repo,
-          path: file.path,
-          ref: branch,
-        });
-        
-        // Decode the content
-        const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
-        
-        // Uwuify the content using the Rust implementation
-        // Fix: Await the uwuifyText function to get the string value
-        const uwuifiedContent = await uwuifyText(content);
-        
-        // Only add to changes if the content actually changed
-        if (uwuifiedContent !== content) {
-          changes.push({
-            path: file.path,
-            mode: '100644',
-            type: 'blob',
-            content: uwuifiedContent,
-          });
-          
-          processedFiles.push(file.path);
-        }
-      } catch (fileError) {
-        logger.error(`Error processing file ${file.path}:`, { error: fileError });
-        // Continue with other files
-      }
-    }
-    
-    // If there are no changes, return empty array
-    if (changes.length === 0) {
-      return [];
-    }
-    
-    // Create a new tree with the changes
-    const { data: newTree } = await octokit.git.createTree({
-      owner,
-      repo,
-      base_tree: treeSha,
-      tree: changes,
-    });
-    
-    // Create a new commit
-    const { data: newCommit } = await octokit.git.createCommit({
-      owner,
-      repo,
-      message: `Uwuify markdown files for issue #${branch.split('-').pop()}`,
-      tree: newTree.sha,
-      parents: [branchSha],
-    });
-    
-    // Update the branch reference
-    await octokit.git.updateRef({
-      owner,
-      repo,
-      ref: `heads/${branch}`,
-      sha: newCommit.sha,
-    });
-    
-    return processedFiles;
-  } catch (error) {
-    logger.error('Error uwuifying repository markdown files:', { error });
-    throw error;
-  }
-}
-
 // Create a pull request with the changes
 async function createPullRequest(
   octokit: any,
@@ -409,7 +274,7 @@ async function createPullRequest(
 ${formatRepositoryStatistics(repoStats)}
 
 ## Changes
-- Uwuified all markdown files in the repository using Rust implementation
+- Uwuified all markdown files in the repository using the Rust binary implementation
 - Created by @uwularpy bot
 `,
     });
@@ -435,7 +300,7 @@ async function notifyRequester(
       owner,
       repo,
       issue_number: issueNumber,
-      body: `@${requester} I've created a pull request with uwuified markdown files (using Rust implementation): ${prUrl}`,
+      body: `@${requester} I've created a pull request with uwuified markdown files (using Rust binary implementation): ${prUrl}`,
     });
   } catch (error) {
     logger.error('Error notifying requester:', { error });
@@ -462,6 +327,19 @@ function formatRepositoryStatistics(stats: RepoStats | undefined): string {
       .map(([lang, bytes]) => `${lang} (${formatBytes(bytes)})`)
       .join(', ');
     
+    // Format top contributors section
+    let topContributorsSection = '';
+    if (stats.topContributors && stats.topContributors.length > 0) {
+      topContributorsSection = `
+## Top Contributors by Merged PRs 👥
+
+${stats.topContributors.map((contributor, index) => 
+  `${index + 1}. **${contributor.name}** - ${contributor.count} merged PR${contributor.count !== 1 ? 's' : ''}`
+).join('\n')}
+
+`;
+    }
+    
     return `
 ## Repository Statistics 📊
 
@@ -476,6 +354,7 @@ Here are some interesting insights about this repository:
 - **Last Updated:** ${lastUpdated}
 - **Top Languages:** ${topLanguages || 'None detected'}
 
+${topContributorsSection}
 *These statistics were generated at the time of uwuification.*
 `;
   } catch (error) {

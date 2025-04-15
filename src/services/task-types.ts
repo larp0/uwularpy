@@ -28,6 +28,8 @@ export interface RepoStats {
   contributors: number;
   lastUpdated: string;
   topLanguages: { [key: string]: number };
+  // Added top contributors by merged PRs
+  topContributors?: Array<{name: string, count: number}>;
 }
 
 /**
