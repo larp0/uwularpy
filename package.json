@@ -11,12 +11,14 @@
   "dependencies": {
     "@octokit/auth-app": "^4.0.9",
     "@octokit/rest": "^19.0.11",
+    "@trigger.dev/sdk": "^3.3.17",
     "axios": "^1.6.2",
     "next": "14.0.4",
     "react": "^18",
     "react-dom": "^18"
   },
   "devDependencies": {
+    "@trigger.dev/build": "^3.3.17",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
