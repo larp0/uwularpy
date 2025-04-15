@@ -23,8 +23,9 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
   const githubAppId = process.env.GITHUB_APP_ID;
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
   const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  const installationId = process.env.GITHUB_INSTALLATION_ID;
 
-  if (!githubAppId || !githubPrivateKey || !githubWebhookSecret) {
+  if (!githubAppId || !githubPrivateKey || !githubWebhookSecret || !installationId) {
     logger.warn("GitHub App credentials missing. Git operations may fail.");
   }
 
@@ -32,16 +33,17 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
   const [owner, repo] = repoUrlMatch ? [repoUrlMatch[1], repoUrlMatch[2]] : [null, null];
 
   let authenticatedRepoUrl = repoUrl;
+  let installationAuthentication;
 
-  if (githubPrivateKey && githubAppId && owner && repo) {
+  if (githubPrivateKey && githubAppId && owner && repo && installationId) {
     const auth = createAppAuth({
       appId: githubAppId,
       privateKey: githubPrivateKey,
     });
 
-    const installationAuthentication = await auth({
+    installationAuthentication = await auth({
       type: "installation",
-      installationId: process.env.GITHUB_INSTALLATION_ID as unknown as number,
+      installationId: parseInt(installationId, 10),
     });
 
     authenticatedRepoUrl = `https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`;
@@ -94,7 +96,7 @@ fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xar
     execSync('git add .', { stdio: 'inherit', cwd: tempDir });
     execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
 
-    if (githubPrivateKey && githubAppId && owner && repo) {
+    if (installationAuthentication && owner && repo) {
       logger.log("Configuring Git with GitHub App authentication");
       execSync(`git remote set-url origin https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`, { stdio: 'inherit', cwd: tempDir });
     }
