@@ -1,3 +1,5 @@
+// src/trigger/uwuify.ts
+
 import { logger, task } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
@@ -28,102 +30,109 @@ interface RepoStats {
   topLanguages: { [key: string]: number };
 }
 
+// Export the task definition separately from the implementation
+// This helps break circular dependencies
 export const uwuifyRepositoryTask = task({
   id: "uwuify-repository",
   // Set a longer maxDuration for repository processing
   maxDuration: 600, // 10 minutes
   run: async (payload: GitHubContext, { ctx }) => {
-    logger.log("Starting uwuification process", { payload });
+    return await runUwuifyTask(payload, ctx);
+  },
+});
 
+// Implement the task logic in a separate function
+async function runUwuifyTask(payload: GitHubContext, ctx: any) {
+  logger.log("Starting uwuification process", { payload });
+
+  try {
+    // Create an authenticated Octokit instance
+    const octokit = await createAuthenticatedOctokit(payload.installationId);
+    
+    // Post an immediate reply comment
+    await postReplyComment(octokit, payload.owner, payload.repo, payload.issueNumber);
+    logger.log("Posted initial reply comment");
+    
+    // Create a new branch
+    const branch = await createBranch(octokit, payload.owner, payload.repo, payload.issueNumber);
+    logger.log("Created branch", { branch });
+    
+    // Gather repository statistics
+    let repoStats: RepoStats | undefined;
     try {
-      // Create an authenticated Octokit instance
+      repoStats = await getRepositoryStatistics(octokit, payload.owner, payload.repo);
+      logger.log("Gathered repository statistics", { repoStats });
+    } catch (statsError) {
+      logger.error("Error gathering repository statistics", { error: statsError });
+      // Continue with the process even if stats gathering fails
+    }
+
+    // Find all markdown files in the repository
+    const markdownFiles = await findAllMarkdownFiles(octokit, payload.owner, payload.repo);
+    logger.log("Found markdown files", { count: markdownFiles.length });
+
+    // Process each markdown file
+    const processedFiles = await uwuifyRepositoryMarkdownFiles(
+      octokit,
+      payload.owner,
+      payload.repo,
+      branch,
+      markdownFiles
+    );
+    
+    logger.log("Processed files", { count: processedFiles.length });
+
+    // Create a pull request with the changes
+    const prUrl = await createPullRequest(
+      octokit,
+      payload.owner,
+      payload.repo,
+      branch,
+      payload.issueNumber,
+      repoStats
+    );
+    
+    logger.log("Created pull request", { url: prUrl });
+
+    // Notify the requester about the PR
+    await notifyRequester(
+      octokit,
+      payload.owner,
+      payload.repo,
+      payload.issueNumber,
+      payload.requester,
+      prUrl
+    );
+    
+    logger.log("Notified requester", { requester: payload.requester });
+
+    return {
+      success: true,
+      prUrl,
+      filesProcessed: processedFiles.length,
+    };
+  } catch (error) {
+    logger.error("Error in uwuification process", { error });
+    
+    // Try to notify the requester about the error
+    try {
       const octokit = await createAuthenticatedOctokit(payload.installationId);
-      
-      // Post an immediate reply comment
-      await postReplyComment(octokit, payload.owner, payload.repo, payload.issueNumber);
-      logger.log("Posted initial reply comment");
-      
-      // Create a new branch
-      const branch = await createBranch(octokit, payload.owner, payload.repo, payload.issueNumber);
-      logger.log("Created branch", { branch });
-      
-      // Gather repository statistics
-      let repoStats: RepoStats | undefined;
-      try {
-        repoStats = await getRepositoryStatistics(octokit, payload.owner, payload.repo);
-        logger.log("Gathered repository statistics", { repoStats });
-      } catch (statsError) {
-        logger.error("Error gathering repository statistics", { error: statsError });
-        // Continue with the process even if stats gathering fails
-      }
-
-      // Find all markdown files in the repository
-      const markdownFiles = await findAllMarkdownFiles(octokit, payload.owner, payload.repo);
-      logger.log("Found markdown files", { count: markdownFiles.length });
-
-      // Process each markdown file
-      const processedFiles = await uwuifyRepositoryMarkdownFiles(
-        octokit,
-        payload.owner,
-        payload.repo,
-        branch,
-        markdownFiles
-      );
-      
-      logger.log("Processed files", { count: processedFiles.length });
-
-      // Create a pull request with the changes
-      const prUrl = await createPullRequest(
-        octokit,
-        payload.owner,
-        payload.repo,
-        branch,
-        payload.issueNumber,
-        repoStats
-      );
-      
-      logger.log("Created pull request", { url: prUrl });
-
-      // Notify the requester about the PR
-      await notifyRequester(
+      await postErrorComment(
         octokit,
         payload.owner,
         payload.repo,
         payload.issueNumber,
         payload.requester,
-        prUrl
+        "processing the repository",
+        error
       );
-      
-      logger.log("Notified requester", { requester: payload.requester });
-
-      return {
-        success: true,
-        prUrl,
-        filesProcessed: processedFiles.length,
-      };
-    } catch (error) {
-      logger.error("Error in uwuification process", { error });
-      
-      // Try to notify the requester about the error
-      try {
-        const octokit = await createAuthenticatedOctokit(payload.installationId);
-        await postErrorComment(
-          octokit,
-          payload.owner,
-          payload.repo,
-          payload.issueNumber,
-          payload.requester,
-          "processing the repository",
-          error
-        );
-      } catch (notifyError) {
-        logger.error("Error notifying requester about failure", { error: notifyError });
-      }
-      
-      throw error;
+    } catch (notifyError) {
+      logger.error("Error notifying requester about failure", { error: notifyError });
     }
-  },
-});
+    
+    throw error;
+  }
+}
 
 // Create an authenticated Octokit instance
 async function createAuthenticatedOctokit(installationId: number): Promise<any> {

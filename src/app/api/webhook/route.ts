@@ -2,8 +2,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/lib/github-auth';
-import { getClient } from '@/trigger';
-import { uwuifyRepositoryTask } from '@/trigger/uwuify';
 
 // POST handler for webhook
 export async function POST(request: NextRequest) {
@@ -33,6 +31,10 @@ export async function POST(request: NextRequest) {
         console.log(`Mention detected in issue #${issueNumber} by ${requester}`);
         
         try {
+          // Dynamically import the trigger client and task to avoid circular dependencies
+          const { getClient } = await import('@/trigger');
+          const { uwuifyRepositoryTask } = await import('@/trigger/uwuify');
+          
           // Trigger the uwuify repository task using trigger.dev
           // All processing will be handled by trigger.dev
           const client = getClient();
