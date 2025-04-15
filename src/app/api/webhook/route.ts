@@ -2,24 +2,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuthenticatedOctokit, verifyWebhookSignature } from '@/lib/github-auth';
-import axios from 'axios';
 import { Octokit } from '@octokit/rest';
-
-// Koeyb API configuration
-const KOEYB_API_URL = 'https://app.koyeb.com/v1';
-// Use environment variable for API key instead of hardcoding
-const KOEYB_API_KEY = process.env.KOYEB_KEY || '';
-
-// Interface for GitHub context to be passed to the worker
-interface GitHubContext {
-  owner: string;
-  repo: string;
-  issueNumber: number;
-  requester: string;
-  installationId: number;
-  branch?: string;
-  repoStats?: RepoStats;
-}
+import { client } from '@/trigger';
+import { uwuifyRepositoryTask } from '@/trigger/uwuify';
 
 // Interface for repository statistics
 interface RepoStats {
@@ -39,12 +24,6 @@ interface RepoStats {
 // POST handler for webhook
 export async function POST(request: NextRequest) {
   try {
-    // Verify that the API key is available
-    if (!KOEYB_API_KEY) {
-      console.error('KOYEB_KEY environment variable is not set');
-      return NextResponse.json({ error: 'API key not configured' }, { status: 500 });
-    }
-    
     // Get the raw request body for signature verification
     const rawBody = await request.text();
     const body = JSON.parse(rawBody);
@@ -104,30 +83,31 @@ export async function POST(request: NextRequest) {
             // Keep repoStats as undefined instead of setting to null
           }
           
-          // Trigger Koeyb worker to handle the uwuification process
+          // Trigger the uwuify repository task using trigger.dev
           try {
-            const context: GitHubContext = {
+            const runId = await client.runTask(uwuifyRepositoryTask, {
               owner,
               repo,
               issueNumber,
               requester,
               installationId: body.installation.id,
               branch,
-              repoStats
-            };
+              repoStats,
+              requestTimestamp: new Date().toISOString(),
+              requestId: generateRequestId(),
+            });
             
-            const jobId = await triggerUwuifyWorker(context);
-            console.log(`Triggered Koeyb worker for uwuification, job ID: ${jobId}`);
+            console.log(`Triggered uwuify repository task, run ID: ${runId}`);
             
-            // Return success response immediately after triggering the worker
+            // Return success response immediately after triggering the task
             return NextResponse.json({ 
               message: 'Webhook processed successfully', 
-              jobId: jobId 
+              runId: runId 
             }, { status: 200 });
-          } catch (workerError) {
-            console.error('Error triggering Koeyb worker:', workerError);
-            await postErrorComment(octokit, owner, repo, issueNumber, requester, 'triggering uwuification worker', workerError);
-            return NextResponse.json({ error: 'Error triggering uwuification worker' }, { status: 500 });
+          } catch (taskError) {
+            console.error('Error triggering uwuify repository task:', taskError);
+            await postErrorComment(octokit, owner, repo, issueNumber, requester, 'triggering uwuification task', taskError);
+            return NextResponse.json({ error: 'Error triggering uwuification task' }, { status: 500 });
           }
         } catch (authError) {
           console.error('Error authenticating with GitHub:', authError);
@@ -318,123 +298,6 @@ async function findAllMarkdownFiles(octokit: any, owner: string, repo: string, p
   }
 }
 
-// Format repository statistics for display
-function formatRepositoryStatistics(stats: RepoStats | undefined): string {
-  if (!stats) return '';
-  
-  try {
-    // Format the last updated date
-    const lastUpdated = new Date(stats.lastUpdated).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    
-    // Format the top languages
-    const topLanguages = Object.entries(stats.topLanguages || {})
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([lang, bytes]) => `${lang} (${formatBytes(bytes)})`)
-      .join(', ');
-    
-    return `
-## Repository Statistics 📊
-
-Here are some interesting insights about this repository:
-
-- **Total Files:** ${stats.totalFiles}
-- **Markdown Files:** ${stats.markdownFiles} (${Math.round((stats.markdownFiles / stats.totalFiles) * 100)}% of total)
-- **Total Markdown Size:** ${formatBytes(stats.totalMarkdownSize)}
-- **Average Markdown File Size:** ${formatBytes(stats.avgMarkdownSize)}
-- **Largest Markdown File:** \`${stats.largestFile.name || 'None'}\` (${formatBytes(stats.largestFile.size)})
-- **Contributors:** ${stats.contributors}
-- **Last Updated:** ${lastUpdated}
-- **Top Languages:** ${topLanguages || 'None detected'}
-
-*These statistics were generated at the time of uwuification.*
-`;
-  } catch (error) {
-    console.error('Error formatting repository statistics:', error);
-    return ''; // Return empty string on error to avoid breaking the PR creation
-  }
-}
-
-// Helper function to format bytes to human-readable format
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-/**
- * Triggers a Koeyb worker to process the uwuification
- * 
- * @param context - The GitHub context needed for processing
- * @returns A promise that resolves with the worker job ID
- */
-async function triggerUwuifyWorker(context: GitHubContext): Promise<string> {
-  try {
-    // Configure the API request
-    const headers = {
-      'Authorization': `Bearer ${KOEYB_API_KEY}`,
-      'Content-Type': 'application/json'
-    };
-
-    // Create the request payload with all necessary context for the worker
-    const payload = {
-      task: 'uwuify',
-      context: {
-        ...context,
-        // Include additional metadata for tracking and debugging
-        requestTimestamp: new Date().toISOString(),
-        requestId: generateRequestId(),
-      }
-    };
-
-    // Make the API request to trigger the worker
-    const response = await axios.post(
-      `${KOEYB_API_URL}/worker-tasks`, 
-      payload,
-      { 
-        headers,
-        timeout: 10000 // 10 second timeout for the API request
-      }
-    );
-
-    // Return the job ID or other identifier from the response
-    return response.data.id || 'task-submitted';
-  } catch (error) {
-    // Handle different types of errors
-    if (axios.isAxiosError(error)) {
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
-        console.error('Koeyb API error response:', {
-          status: error.response.status,
-          data: error.response.data
-        });
-        throw new Error(`Koeyb API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-      } else if (error.request) {
-        // The request was made but no response was received
-        console.error('No response received from Koeyb API:', error.request);
-        throw new Error('No response received from Koeyb API. Please check your network connection and try again.');
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        console.error('Error setting up Koeyb API request:', error.message);
-        throw new Error(`Error setting up Koeyb API request: ${error.message}`);
-      }
-    } else {
-      // Handle non-Axios errors
-      console.error('Error triggering Koeyb worker:', error);
-      throw new Error(`Failed to trigger Koeyb worker: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-}
-
 /**
  * Generates a unique request ID for tracking
  * 
@@ -442,48 +305,4 @@ async function triggerUwuifyWorker(context: GitHubContext): Promise<string> {
  */
 function generateRequestId(): string {
   return `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
-}
-
-/**
- * Checks the status of a worker job
- * 
- * @param jobId - The ID of the worker job
- * @returns A promise that resolves with the job status
- */
-async function checkWorkerStatus(jobId: string): Promise<string> {
-  try {
-    const headers = {
-      'Authorization': `Bearer ${KOEYB_API_KEY}`
-    };
-
-    const response = await axios.get(
-      `${KOEYB_API_URL}/worker-tasks/${jobId}`,
-      { 
-        headers,
-        timeout: 5000 // 5 second timeout
-      }
-    );
-
-    return response.data.status;
-  } catch (error) {
-    // Handle different types of errors
-    if (axios.isAxiosError(error)) {
-      if (error.response) {
-        console.error('Koeyb API error response when checking status:', {
-          status: error.response.status,
-          data: error.response.data
-        });
-        throw new Error(`Koeyb API error when checking status: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
-      } else if (error.request) {
-        console.error('No response received from Koeyb API when checking status:', error.request);
-        throw new Error('No response received from Koeyb API when checking status. Please check your network connection and try again.');
-      } else {
-        console.error('Error setting up Koeyb API request when checking status:', error.message);
-        throw new Error(`Error setting up Koeyb API request when checking status: ${error.message}`);
-      }
-    } else {
-      console.error('Error checking worker status:', error);
-      throw new Error(`Failed to check worker status: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
 }
