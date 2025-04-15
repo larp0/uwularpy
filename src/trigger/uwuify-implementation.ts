@@ -330,7 +330,8 @@ async function uwuifyRepositoryMarkdownFiles(
         const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
         
         // Uwuify the content using the Rust implementation
-        const uwuifiedContent = uwuifyText(content);
+        // Fix: Await the uwuifyText function to get the string value
+        const uwuifiedContent = await uwuifyText(content);
         
         // Only add to changes if the content actually changed
         if (uwuifiedContent !== content) {
