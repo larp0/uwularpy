@@ -14,7 +14,7 @@ import { createAppAuth } from '@octokit/auth-app';
  * @param branchName - Name of the branch to c reate
  * @returns Path to the cloned repository
  */
-export async function uwuifyRepository($1, installationIdParam?: string): Promise<string> {
+export async function uwuifyRepository(repoUrl: string, branchName: string, installationIdParam?: string): Promise<string> {
   logger.log("Starting repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
