@@ -4,7 +4,7 @@
   "description": "A Next.js application that uwuifies markdown files in GitHub repositories when mentioned in issue comments",
   "scripts": {
     "dev": "next dev",
-    "build": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && export PATH=\"$HOME/.cargo/bin:$PATH\" && cargo install uwuify --version 0.2.2 && next build",
+    "build": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | RUSTUP_HOME=/tmp/.rustup HOME=/tmp sh -s -- -y && export PATH=\"/tmp/.cargo/bin:$PATH\" && cargo install uwuify --version 0.2.2 && next build",
     "start": "next start",
     "lint": "next lint"
   },

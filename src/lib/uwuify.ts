@@ -194,8 +194,8 @@ export async function uwuifyRepositoryMarkdownFiles(
         if (uwuifiedContent !== content) {
           fileChanges.push({
             path: file.path!,
-            mode: '100644', // Regular file mode
-            type: 'blob',
+            mode: "100644" as const, // Fix: Use string literal type instead of string
+            type: "blob" as const,   // Fix: Use string literal type instead of string
             content: uwuifiedContent,
           });
           
