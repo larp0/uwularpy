@@ -23,40 +23,67 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
   const githubAppId = process.env.GITHUB_APP_ID;
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
   const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
-  // installationId will be passed as a function parameter
-  let installationId = installationIdParam;
+  const installationId = installationIdParam;
 
-  if (!githubAppId || !githubPrivateKey || !githubWebhookSecret || !installationId) {
-    logger.warn("GitHub App credentials missing. Git operations may fail.");
-  }
-
+  // Parse repository owner and name from URL
   const repoUrlMatch = repoUrl.match(/github\.com\/([^\/]+)\/([^\/.]+)(?:\.git)?$/);
   const [owner, repo] = repoUrlMatch ? [repoUrlMatch[1], repoUrlMatch[2]] : [null, null];
 
+  // Set up authentication if possible
   let authenticatedRepoUrl = repoUrl;
-  installationId = installationIdParam;
   let installationAuthentication;
 
-  if (githubPrivateKey && githubAppId && owner && repo && installationId) {
-    const auth = createAppAuth({
-      appId: githubAppId,
-      privateKey: githubPrivateKey,
-    });
+  if (!githubAppId || !githubPrivateKey) {
+    logger.warn("GitHub App credentials missing (APP_ID or PRIVATE_KEY). Git operations may fail.");
+  }
 
-    installationAuthentication = await auth({
-      type: "installation",
-      installationId: parseInt(installationId, 10),
-    });
+  if (!installationId) {
+    logger.warn("GitHub App installation ID missing. Git operations may fail.");
+  }
 
-    authenticatedRepoUrl = `https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`;
+  if (!owner || !repo) {
+    logger.warn("Could not parse owner and repo from URL. Using original URL for git operations.");
   }
 
   try {
+    // Try to authenticate with GitHub App if credentials are available
+    if (githubAppId && githubPrivateKey && owner && repo && installationId) {
+      logger.log("Setting up GitHub App authentication");
+      
+      try {
+        const auth = createAppAuth({
+          appId: githubAppId,
+          privateKey: githubPrivateKey,
+        });
+
+        installationAuthentication = await auth({
+          type: "installation",
+          installationId: parseInt(installationId, 10),
+        });
+
+        authenticatedRepoUrl = `https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`;
+        logger.log("GitHub App authentication successful");
+      } catch (authError) {
+        logger.error(`GitHub App authentication failed: ${authError instanceof Error ? authError.message : 'Unknown error'}`);
+        logger.warn("Falling back to original repository URL");
+      }
+    }
+
     logger.log(`Cloning repository: ${repoUrl}`);
     execSync(`git clone ${authenticatedRepoUrl} ${tempDir}`, { stdio: 'inherit' });
 
     logger.log(`Creating branch: ${branchName}`);
     execSync(`git checkout -b ${branchName}`, { stdio: 'inherit', cwd: tempDir });
+
+    // Set Git identity if not already configured
+    try {
+      execSync('git config user.email', { stdio: 'pipe', cwd: tempDir });
+      execSync('git config user.name', { stdio: 'pipe', cwd: tempDir });
+    } catch (e) {
+      logger.log("Setting default Git identity");
+      execSync('git config user.email "uwuify-bot@example.com"', { stdio: 'inherit', cwd: tempDir });
+      execSync('git config user.name "UwUify Bot"', { stdio: 'inherit', cwd: tempDir });
+    }
 
     logger.log("Running uwuify via optimized bash script");
 
@@ -98,9 +125,12 @@ fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xar
     execSync('git add .', { stdio: 'inherit', cwd: tempDir });
     execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
 
+    logger.log("Configuring Git for push");
     if (installationAuthentication && owner && repo) {
-      logger.log("Configuring Git with GitHub App authentication");
+      logger.log("Using GitHub App token for push");
       execSync(`git remote set-url origin https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`, { stdio: 'inherit', cwd: tempDir });
+    } else {
+      logger.warn("No GitHub App authentication available, using original URL for push");
     }
 
     logger.log("Pushing changes");
