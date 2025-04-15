@@ -1,7 +1,7 @@
 // src/lib/binary-uwuify.ts
-// This file provides a direct interface to the uwuify binary
+// Highly optimized: Bash-based markdown processing with parallel execution
 
-import { execSync } from 'child_process';
+import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -15,174 +15,106 @@ import { logger } from "@trigger.dev/sdk/v3";
  */
 export async function uwuifyRepository(repoUrl: string, branchName: string): Promise<string> {
   logger.log("Starting repository uwuification", { repoUrl, branchName });
-  
-  // Create a temporary directory for the repository
+
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
-  
+  const uwuifyBinaryPath = path.join(process.cwd(), 'src', 'lib', 'bin', 'uwuify');
+  const githubToken = process.env.GITHUB_TOKEN;
+
+  if (!githubToken) {
+    logger.warn("No GITHUB_TOKEN found. Git operations may fail.");
+  }
+
+  const repoUrlMatch = repoUrl.match(/github\.com\/([^\/]+)\/([^\/.]+)(?:\.git)?$/);
+  const [owner, repo] = repoUrlMatch ? [repoUrlMatch[1], repoUrlMatch[2]] : [null, null];
+
+  const authenticatedRepoUrl = githubToken && owner && repo
+    ? `https://${githubToken}@github.com/${owner}/${repo}.git`
+    : repoUrl;
+
   try {
-    // Get the path to the uwuify binary
-    const uwuifyBinaryPath = path.join(process.cwd(), 'src', 'lib', 'bin', 'uwuify');
-    
-    // Ensure the binary is executable
-    try {
-      fs.accessSync(uwuifyBinaryPath, fs.constants.X_OK);
-    } catch (error) {
-      logger.log("Making uwuify binary executable");
-      execSync(`chmod +x "${uwuifyBinaryPath}"`);
-    }
-    
-    // Get the GitHub token from environment variables
-    const githubToken = process.env.GITHUB_TOKEN;
-    if (!githubToken) {
-      logger.warn("No GITHUB_TOKEN found in environment variables. Git operations may fail if authentication is required.");
-    }
-    
-    // Extract owner and repo from repoUrl
-    const repoUrlMatch = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)(?:\.git)?$/);
-    const owner = repoUrlMatch ? repoUrlMatch[1] : null;
-    const repo = repoUrlMatch ? repoUrlMatch[2] : null;
-    
-    // Prepare authenticated URL for git operations if token is available
-    const authenticatedRepoUrl = githubToken && owner && repo
-      ? `https://${githubToken}@github.com/${owner}/${repo}.git`
-      : repoUrl;
-    
-    // Clone the repository using the authenticated URL if available
     logger.log(`Cloning repository: ${repoUrl}`);
     execSync(`git clone ${authenticatedRepoUrl} ${tempDir}`, { stdio: 'inherit' });
-    
-    // Change to the repository directory
-    process.chdir(tempDir);
-    
-    // Create and checkout a new branch
+
     logger.log(`Creating branch: ${branchName}`);
-    execSync(`git checkout -b ${branchName}`, { stdio: 'inherit' });
-    
-    // Run the uwuify_repo.js script using the binary
-    logger.log("Running uwuify on repository");
-    
-    // Find all markdown files
-    const markdownFiles: string[] = [];
-    findMarkdownFiles(tempDir, markdownFiles);
-    logger.log(`Found ${markdownFiles.length} markdown files to process`);
-    
-    // Process each markdown file with the uwuify binary
-    for (const file of markdownFiles) {
-      try {
-        logger.log(`Processing file: ${file}`);
-        
-        // Create temporary files for input/output
-        const tempInput = path.join(os.tmpdir(), `uwuify-input-${path.basename(file)}`);
-        const tempOutput = path.join(os.tmpdir(), `uwuify-output-${path.basename(file)}`);
-        
-        // Read the original content
-        const content = fs.readFileSync(file, 'utf-8');
-        
-        // Write to temp input file
-        fs.writeFileSync(tempInput, content, 'utf-8');
-        
-        // Run the uwuify binary directly
-        execSync(`"${uwuifyBinaryPath}" -t 32 "${tempInput}" "${tempOutput}"`);
-        
-        // Read the uwuified content
-        const uwuifiedContent = fs.readFileSync(tempOutput, 'utf-8');
-        
-        // Write back to the original file
-        fs.writeFileSync(file, uwuifiedContent, 'utf-8');
-        
-        // Clean up temp files
-        fs.unlinkSync(tempInput);
-        fs.unlinkSync(tempOutput);
-        
-        logger.log(`Successfully processed: ${file}`);
-      } catch (error) {
-        logger.error(`Error processing file ${file}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-    }
-    
-    // Commit the changes
+    execSync(`git checkout -b ${branchName}`, { stdio: 'inherit', cwd: tempDir });
+
+    logger.log("Running uwuify via optimized bash script");
+
+    const bashScript = `#!/usr/bin/env bash
+set -e
+REPO_DIR="$1"
+UWUIFY="$2"
+
+if ! command -v fd &>/dev/null; then
+  echo "fd not found. Installing..."
+  if command -v apt &>/dev/null; then
+    sudo apt update && sudo apt install -y fd-find
+    ln -sf $(command -v fdfind) /usr/local/bin/fd
+  elif command -v brew &>/dev/null; then
+    brew install fd
+  else
+    echo "No supported package manager found. Install fd manually."
+    exit 1
+  fi
+fi
+
+export -f uwuify_file
+uwuify_file() {
+  local FILE="$1"
+  echo "Uwuifying: $FILE"
+  "$UWUIFY" -t 32 "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+}
+
+fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xargs -P $(nproc) -I {} bash -c 'uwuify_file "$@"' _ {}
+`;
+
+    const bashScriptPath = path.join(os.tmpdir(), `uwuify-script-${Date.now()}.sh`);
+    fs.writeFileSync(bashScriptPath, bashScript, { mode: 0o755 });
+
+    spawnSync(bashScriptPath, [tempDir, uwuifyBinaryPath], { stdio: 'inherit' });
+    fs.unlinkSync(bashScriptPath);
+
     logger.log("Committing changes");
-    execSync('git add .', { stdio: 'inherit' });
-    execSync('git commit -m "uwu"', { stdio: 'inherit' });
-    
-    // Configure Git with token for authentication if available
-    if (githubToken) {
-      logger.log("Configuring Git with token for authentication");
-      
-      // Set up Git credentials using the token
-      if (owner && repo) {
-        const remoteUrl = `https://${githubToken}@github.com/${owner}/${repo}.git`;
-        execSync(`git remote set-url origin ${remoteUrl}`);
-      }
+    execSync('git add .', { stdio: 'inherit', cwd: tempDir });
+    execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
+
+    if (githubToken && owner && repo) {
+      logger.log("Configuring Git with token authentication");
+      execSync(`git remote set-url origin https://${githubToken}@github.com/${owner}/${repo}.git`, { stdio: 'inherit', cwd: tempDir });
     }
-    
-    // Push the changes
+
     logger.log("Pushing changes");
-    execSync(`git push origin ${branchName}`, { stdio: 'inherit' });
-    
+    execSync(`git push origin ${branchName}`, { stdio: 'inherit', cwd: tempDir });
+
     return tempDir;
   } catch (error) {
-    logger.error(`Error in uwuifyRepository: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error(`Error during uwuifyRepository: ${error instanceof Error ? error.message : 'Unknown error'}`);
     throw error;
   }
 }
 
 /**
  * Get the top contributors by merged PRs
- * @param repoDir - Path to the repository directory
- * @param count - Number of top contributors to return
- * @returns Array of top contributors with their PR counts
  */
 export function getTopContributorsByMergedPRs(repoDir: string, count: number = 5): Array<{name: string, count: number}> {
   try {
-    const currentDir = process.cwd();
-    process.chdir(repoDir);
-    
-    // Get all merged PRs and their authors
     const gitLogOutput = execSync(
       'git log --merges --pretty=format:"%an" | grep -v "^$"',
-      { encoding: 'utf-8' }
+      { encoding: 'utf-8', cwd: repoDir }
     );
-    
-    // Restore original directory
-    process.chdir(currentDir);
-    
-    // Count occurrences of each author
+
     const authorCounts: Record<string, number> = {};
-    const authors = gitLogOutput.split('\n');
-    
-    for (const author of authors) {
-      if (author.trim()) {
-        authorCounts[author] = (authorCounts[author] || 0) + 1;
-      }
-    }
-    
-    // Convert to array and sort by count
-    const sortedAuthors = Object.entries(authorCounts)
+    gitLogOutput.split('\n').forEach(author => {
+      author = author.trim();
+      if (author) authorCounts[author] = (authorCounts[author] || 0) + 1;
+    });
+
+    return Object.entries(authorCounts)
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, count);
-    
-    return sortedAuthors;
   } catch (error) {
-    logger.error(`Error getting top contributors: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error(`Error retrieving top contributors: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return [];
-  }
-}
-
-/**
- * Helper function to find all markdown files in a directory recursively
- */
-function findMarkdownFiles(dir: string, results: string[]) {
-  const files = fs.readdirSync(dir, { withFileTypes: true });
-  
-  for (const file of files) {
-    const fullPath = path.join(dir, file.name);
-    
-    if (file.isDirectory() && !file.name.startsWith('.') && file.name !== 'node_modules') {
-      findMarkdownFiles(fullPath, results);
-    } else if (file.isFile() && file.name.endsWith('.md')) {
-      results.push(fullPath);
-    }
   }
 }
