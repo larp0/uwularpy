@@ -1,36 +1,34 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
 import { BuildExtension } from "@trigger.dev/build";
 
-// Create a custom build extension to ensure Rust uwuify is used
+// Create a custom build extension to install Rust and build the uwuify binary
 function rustUwuifyExtension(): BuildExtension {
   return {
     name: "rust-uwuify-extension",
-    // Add uwuify-rs as an external dependency
-    externalsForTarget: async (target) => {
-      return ["uwuify-rs"];
-    },
     // Set up the build environment
     onBuildStart: async (context) => {
       console.log("Setting up Rust uwuify extension...");
-      
-      // Register any necessary plugins or configurations
-      if (context.target === "deploy") {
-        console.log("Preparing Rust uwuify for deployment...");
-      }
     },
-    // Ensure the Rust implementation is properly included
+    // Ensure the Rust implementation is properly included and built
     onBuildComplete: async (context, manifest) => {
-      console.log("Finalizing Rust uwuify integration...");
+      console.log("Installing Rust and building uwuify binary...");
       
-      // Add any necessary layers or configurations
       if (context.target === "deploy") {
-        // Add a layer to ensure the Rust implementation is included
+        // Add a layer to install Rust and build the binary
         context.addLayer({
           id: "rust-uwuify-layer",
-          // Add any necessary dependencies
-          deps: {
-            "uwuify-rs": "^1.0.0"
-          }
+          // Commands to run in the build container
+          cmds: [
+            // Install Rust
+            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+            // Add Cargo to PATH
+            "export PATH=\"$HOME/.cargo/bin:$PATH\"",
+            // Build the uwuify binary
+            "cd src/lib/rust-binary && $HOME/.cargo/bin/cargo build --release",
+            // Copy the binary to a location that will be available in the final image
+            "mkdir -p /app/src/lib/rust-binary/",
+            "cp src/lib/rust-binary/target/release/uwuify-binary /app/src/lib/rust-binary/"
+          ]
         });
       }
     }
