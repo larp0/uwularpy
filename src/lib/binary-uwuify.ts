@@ -1,7 +1,7 @@
 // src/lib/binary-uwuify.ts
 // Optimized with GitHub App authentication: Bash-based markdown processing with parallel execution
 
-import { execSync, spawnSync } from 'child_process';
+import { execSync, spawnSync, spawn, exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -101,54 +101,98 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     logger.log("Verifying Git identity configuration:");
     execSync('git config --list | grep user.', { stdio: 'inherit', cwd: tempDir });
 
-    // List markdown files in the repository for debugging
-    logger.log("Finding markdown files in the repository");
-    try {
-      const findCommand = `find ${tempDir} -name "*.md" -type f -not -path "*/node_modules/*" -not -path "*/.git/*"`;
-      const mdFiles = execSync(findCommand, { encoding: 'utf-8' }).toString().trim();
-      
-      const fileCount = mdFiles ? mdFiles.split('\n').length : 0;
-      logger.log(`Found ${fileCount} markdown files in the repository`);
-      
-      if (fileCount === 0) {
-        logger.warn("No markdown files found to process!");
-      } else {
-        logger.log("Markdown files found", { files: mdFiles.split('\n').slice(0, 10).join('\n') });
-      }
-    } catch (e) {
-      logger.error(`Error finding markdown files: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    }
+    // Create a batch processing approach for large repositories
+    logger.log("Using improved batch processing for large repositories");
+    
+    // Create a script file that will handle the uwuification in batches
+    const batchScript = `#!/bin/bash
+set -e
 
-    logger.log("Running uwuify directly on each markdown file");
+REPO_DIR="$1"
+UWUIFY_BINARY="$2"
+BATCH_SIZE=50
+TOTAL_PROCESSED=0
+CHANGED_FILES=0
+
+# Find all markdown files, excluding .git and node_modules
+echo "Finding all markdown files..."
+find "$REPO_DIR" -name "*.md" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" > /tmp/md_files_list.txt
+
+# Get total count
+TOTAL_FILES=$(wc -l < /tmp/md_files_list.txt)
+echo "Found $TOTAL_FILES markdown files to process"
+
+# If no files found, exit early
+if [ "$TOTAL_FILES" -eq 0 ]; then
+  echo "No markdown files found in repository"
+  exit 0
+fi
+
+# Process files in batches
+while IFS= read -r BATCH_FILES; do
+  # Process each file in the current batch
+  echo "$BATCH_FILES" | while IFS= read -r file; do
+    echo "Processing: $file"
+    # Save original content for comparison
+    cp "$file" "$file.orig"
+    # Process the file with uwuify
+    "$UWUIFY_BINARY" -t 32 "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+    # Check if the file was changed
+    if ! diff -q "$file" "$file.orig" > /dev/null; then
+      echo "File changed: $file"
+      CHANGED_FILES=$((CHANGED_FILES + 1))
+    else
+      echo "No changes in file: $file"
+    fi
+    # Remove the original file
+    rm "$file.orig"
+    TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
+    # Print progress
+    if [ $((TOTAL_PROCESSED % 10)) -eq 0 ]; then
+      echo "Progress: $TOTAL_PROCESSED/$TOTAL_FILES files processed"
+    fi
+  done
+  
+  # Commit this batch if there are changes
+  if [ "$CHANGED_FILES" -gt 0 ]; then
+    cd "$REPO_DIR"
+    git add -A
+    git commit -m "uwuify batch of markdown files"
+    CHANGED_FILES=0
+    echo "Committed batch of changes"
+  fi
+  
+done < <(split -l $BATCH_SIZE /tmp/md_files_list.txt)
+
+echo "Completed processing $TOTAL_PROCESSED files"
+echo "All batches processed successfully"
+`;
+
+    const batchScriptPath = path.join(os.tmpdir(), `uwuify-batch-${Date.now()}.sh`);
+    fs.writeFileSync(batchScriptPath, batchScript, { mode: 0o755 });
     
-    // Process each markdown file directly with the uwuify binary
-    const processFiles = `
-      find ${tempDir} -name "*.md" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | while read file; do
-        echo "Processing $file"
-        # Save original content for comparison
-        cp "$file" "$file.orig"
-        # Process the file with uwuify
-        "${uwuifyBinaryPath}" -t 32 "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-        # Check if the file was changed
-        if ! diff -q "$file" "$file.orig" > /dev/null; then
-          echo "File changed: $file"
-        else
-          echo "No changes in file: $file"
-        fi
-        # Remove the original file
-        rm "$file.orig"
-      done
-    `;
+    // Run the batch script
+    logger.log("Starting batch processing script");
+    try {
+      const batchOutput = execSync(`${batchScriptPath} "${tempDir}" "${uwuifyBinaryPath}"`, { 
+        encoding: 'utf-8',
+      maxBuffer: 1000 * 1024 * 1024, // 1gb buffer
+        stdio: ['inherit', 'pipe', 'pipe'] 
+      });
+      logger.log("Batch processing completed", { summary: batchOutput.slice(-2000) });
+    } catch (batchError) {
+      logger.error(`Error during batch processing: ${batchError instanceof Error ? batchError.message : 'Unknown error'}`);
+      logger.warn("Attempting to commit any changes that were made before the error");
+    }
     
-    const processOutput = execSync(processFiles, { encoding: 'utf-8', shell: '/bin/bash' });
-    logger.log("Process output", { output: processOutput });
+    // Remove the batch script
+    fs.unlinkSync(batchScriptPath);
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
     
     if (!gitStatus) {
       logger.log("No changes were made to markdown files. Creating empty commit.");
-      // For testing purposes, let's create a simple change to verify git works
       fs.writeFileSync(path.join(tempDir, 'UWUIFY_TEST.md'), 'This is a test file created by uwuify bot');
       execSync('git add UWUIFY_TEST.md', { stdio: 'inherit', cwd: tempDir });
       execSync('git commit -m "uwu (test file added since no changes were found)"', { stdio: 'inherit', cwd: tempDir });
