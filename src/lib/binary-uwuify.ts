@@ -1,11 +1,12 @@
 // src/lib/binary-uwuify.ts
-// Highly optimized: Bash-based markdown processing with parallel execution
+// Optimized with GitHub App authentication: Bash-based markdown processing with parallel execution
 
 import { execSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger } from "@trigger.dev/sdk/v3";
+import { createAppAuth } from '@octokit/auth-app';
 
 /**
  * Process a repository with the uwuify binary
@@ -18,18 +19,33 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
   const uwuifyBinaryPath = path.join(process.cwd(), 'src', 'lib', 'bin', 'uwuify');
-  const githubToken = process.env.GITHUB_TOKEN;
 
-  if (!githubToken) {
-    logger.warn("No GITHUB_TOKEN found. Git operations may fail.");
+  const githubAppId = process.env.GITHUB_APP_ID;
+  const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+
+  if (!githubAppId || !githubPrivateKey || !githubWebhookSecret) {
+    logger.warn("GitHub App credentials missing. Git operations may fail.");
   }
 
   const repoUrlMatch = repoUrl.match(/github\.com\/([^\/]+)\/([^\/.]+)(?:\.git)?$/);
   const [owner, repo] = repoUrlMatch ? [repoUrlMatch[1], repoUrlMatch[2]] : [null, null];
 
-  const authenticatedRepoUrl = githubToken && owner && repo
-    ? `https://${githubToken}@github.com/${owner}/${repo}.git`
-    : repoUrl;
+  let authenticatedRepoUrl = repoUrl;
+
+  if (githubPrivateKey && githubAppId && owner && repo) {
+    const auth = createAppAuth({
+      appId: githubAppId,
+      privateKey: githubPrivateKey,
+    });
+
+    const installationAuthentication = await auth({
+      type: "installation",
+      installationId: process.env.GITHUB_INSTALLATION_ID as unknown as number,
+    });
+
+    authenticatedRepoUrl = `https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`;
+  }
 
   try {
     logger.log(`Cloning repository: ${repoUrl}`);
@@ -78,9 +94,9 @@ fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xar
     execSync('git add .', { stdio: 'inherit', cwd: tempDir });
     execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
 
-    if (githubToken && owner && repo) {
-      logger.log("Configuring Git with token authentication");
-      execSync(`git remote set-url origin https://${githubToken}@github.com/${owner}/${repo}.git`, { stdio: 'inherit', cwd: tempDir });
+    if (githubPrivateKey && githubAppId && owner && repo) {
+      logger.log("Configuring Git with GitHub App authentication");
+      execSync(`git remote set-url origin https://x-access-token:${installationAuthentication.token}@github.com/${owner}/${repo}.git`, { stdio: 'inherit', cwd: tempDir });
     }
 
     logger.log("Pushing changes");
