@@ -7,7 +7,8 @@ import { Octokit } from '@octokit/rest';
 
 // Koeyb API configuration
 const KOEYB_API_URL = 'https://app.koyeb.com/v1';
-const KOEYB_API_KEY = '2sdajy2jvjuskub3qnx11e067fdrjnrdizyx6q7wicl1t18fhoajjue4q4dix0nl';
+// Use environment variable for API key instead of hardcoding
+const KOEYB_API_KEY = process.env.KOYEB_KEY || '';
 
 // Interface for GitHub context to be passed to the worker
 interface GitHubContext {
@@ -38,6 +39,12 @@ interface RepoStats {
 // POST handler for webhook
 export async function POST(request: NextRequest) {
   try {
+    // Verify that the API key is available
+    if (!KOEYB_API_KEY) {
+      console.error('KOYEB_KEY environment variable is not set');
+      return NextResponse.json({ error: 'API key not configured' }, { status: 500 });
+    }
+    
     // Get the raw request body for signature verification
     const rawBody = await request.text();
     const body = JSON.parse(rawBody);
@@ -459,7 +466,24 @@ async function checkWorkerStatus(jobId: string): Promise<string> {
 
     return response.data.status;
   } catch (error) {
-    console.error('Error checking worker status:', error);
-    throw new Error(`Failed to check worker status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Handle different types of errors
+    if (axios.isAxiosError(error)) {
+      if (error.response) {
+        console.error('Koeyb API error response when checking status:', {
+          status: error.response.status,
+          data: error.response.data
+        });
+        throw new Error(`Koeyb API error when checking status: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        console.error('No response received from Koeyb API when checking status:', error.request);
+        throw new Error('No response received from Koeyb API when checking status. Please check your network connection and try again.');
+      } else {
+        console.error('Error setting up Koeyb API request when checking status:', error.message);
+        throw new Error(`Error setting up Koeyb API request when checking status: ${error.message}`);
+      }
+    } else {
+      console.error('Error checking worker status:', error);
+      throw new Error(`Failed to check worker status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
