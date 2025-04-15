@@ -4,6 +4,7 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext, RepoStats } from "../services/task-types";
+import { uwuifyText } from "../lib/rust-uwuify"; // Import the Rust uwuify implementation
 
 // Export the implementation function
 export async function runUwuifyTask(payload: GitHubContext, ctx: any) {
@@ -328,7 +329,7 @@ async function uwuifyRepositoryMarkdownFiles(
         // Decode the content
         const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
         
-        // Uwuify the content
+        // Uwuify the content using the Rust implementation
         const uwuifiedContent = uwuifyText(content);
         
         // Only add to changes if the content actually changed
@@ -407,7 +408,7 @@ async function createPullRequest(
 ${formatRepositoryStatistics(repoStats)}
 
 ## Changes
-- Uwuified all markdown files in the repository
+- Uwuified all markdown files in the repository using Rust implementation
 - Created by @uwularpy bot
 `,
     });
@@ -433,7 +434,7 @@ async function notifyRequester(
       owner,
       repo,
       issue_number: issueNumber,
-      body: `@${requester} I've created a pull request with uwuified markdown files: ${prUrl}`,
+      body: `@${requester} I've created a pull request with uwuified markdown files (using Rust implementation): ${prUrl}`,
     });
   } catch (error) {
     logger.error('Error notifying requester:', { error });
@@ -491,24 +492,4 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// Uwuify text function
-function uwuifyText(text: string): string {
-  // This is a simple implementation of uwuification
-  // In a real implementation, you would use a more sophisticated algorithm
-  // or call an external uwuify library/service
-  
-  return text
-    .replace(/r|l/g, 'w')
-    .replace(/R|L/g, 'W')
-    .replace(/n([aeiou])/g, 'ny$1')
-    .replace(/N([aeiou])/g, 'Ny$1')
-    .replace(/N([AEIOU])/g, 'NY$1')
-    .replace(/ove/g, 'uv')
-    .replace(/th/g, 'd')
-    .replace(/Th/g, 'D')
-    .replace(/\!+/g, '! uwu')
-    .replace(/\?+/g, '? owo')
-    .replace(/\. /g, '~ ');
 }
