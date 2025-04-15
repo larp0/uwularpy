@@ -31,9 +31,25 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
       execSync(`chmod +x "${uwuifyBinaryPath}"`);
     }
     
-    // Clone the repository
+    // Get the GitHub token from environment variables
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+      logger.warn("No GITHUB_TOKEN found in environment variables. Git operations may fail if authentication is required.");
+    }
+    
+    // Extract owner and repo from repoUrl
+    const repoUrlMatch = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)(?:\.git)?$/);
+    const owner = repoUrlMatch ? repoUrlMatch[1] : null;
+    const repo = repoUrlMatch ? repoUrlMatch[2] : null;
+    
+    // Prepare authenticated URL for git operations if token is available
+    const authenticatedRepoUrl = githubToken && owner && repo
+      ? `https://${githubToken}@github.com/${owner}/${repo}.git`
+      : repoUrl;
+    
+    // Clone the repository using the authenticated URL if available
     logger.log(`Cloning repository: ${repoUrl}`);
-    execSync(`git clone ${repoUrl} ${tempDir}`, { stdio: 'inherit' });
+    execSync(`git clone ${authenticatedRepoUrl} ${tempDir}`, { stdio: 'inherit' });
     
     // Change to the repository directory
     process.chdir(tempDir);
@@ -88,6 +104,17 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
     logger.log("Committing changes");
     execSync('git add .', { stdio: 'inherit' });
     execSync('git commit -m "uwu"', { stdio: 'inherit' });
+    
+    // Configure Git with token for authentication if available
+    if (githubToken) {
+      logger.log("Configuring Git with token for authentication");
+      
+      // Set up Git credentials using the token
+      if (owner && repo) {
+        const remoteUrl = `https://${githubToken}@github.com/${owner}/${repo}.git`;
+        execSync(`git remote set-url origin ${remoteUrl}`);
+      }
+    }
     
     // Push the changes
     logger.log("Pushing changes");
