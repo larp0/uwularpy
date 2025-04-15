@@ -18,7 +18,23 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
   logger.log("Starting repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
+  logger.log(`Created temporary directory at: ${tempDir}`);
+  
   const uwuifyBinaryPath = path.join(process.cwd(), 'src', 'lib', 'bin', 'uwuify');
+  logger.log(`UwUify binary path: ${uwuifyBinaryPath}`);
+  
+  // Verify the binary exists and is executable
+  if (!fs.existsSync(uwuifyBinaryPath)) {
+    throw new Error(`UwUify binary not found at ${uwuifyBinaryPath}`);
+  }
+  
+  try {
+    // Test the binary to make sure it works
+    const testOutput = execSync(`${uwuifyBinaryPath} --version`, { encoding: 'utf-8' });
+    logger.log(`UwUify binary version: ${testOutput.trim()}`);
+  } catch (e) {
+    logger.error(`Error testing uwuify binary: ${e instanceof Error ? e.message : 'Unknown error'}`);
+  }
 
   const githubAppId = process.env.GITHUB_APP_ID;
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -85,48 +101,57 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     logger.log("Verifying Git identity configuration:");
     execSync('git config --list | grep user.', { stdio: 'inherit', cwd: tempDir });
 
-    logger.log("Running uwuify via optimized bash script");
+    // List markdown files in the repository for debugging
+    logger.log("Finding markdown files in the repository");
+    try {
+      const findCommand = `find ${tempDir} -name "*.md" -type f -not -path "*/node_modules/*" -not -path "*/.git/*"`;
+      const mdFiles = execSync(findCommand, { encoding: 'utf-8' }).toString().trim();
+      
+      const fileCount = mdFiles ? mdFiles.split('\n').length : 0;
+      logger.log(`Found ${fileCount} markdown files in the repository`);
+      
+      if (fileCount === 0) {
+        logger.warn("No markdown files found to process!");
+      } else {
+        logger.log("Markdown files found:", mdFiles.split('\n').slice(0, 10).join('\n'));
+      }
+    } catch (e) {
+      logger.error(`Error finding markdown files: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
 
-    const bashScript = `#!/usr/bin/env bash
-set -e
-REPO_DIR="$1"
-UWUIFY="$2"
-
-if ! command -v fd &>/dev/null; then
-  echo "fd not found. Installing..."
-  if command -v apt &>/dev/null; then
-    sudo apt update && sudo apt install -y fd-find
-    ln -sf $(command -v fdfind) /usr/local/bin/fd
-  elif command -v brew &>/dev/null; then
-    brew install fd
-  else
-    echo "No supported package manager found. Install fd manually."
-    exit 1
-  fi
-fi
-
-export -f uwuify_file
-uwuify_file() {
-  local FILE="$1"
-  echo "Uwuifying: $FILE"
-  "$UWUIFY" -t 32 "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
-}
-
-fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xargs -P $(nproc) -I {} bash -c 'uwuify_file "$@"' _ {}
-`;
-
-    const bashScriptPath = path.join(os.tmpdir(), `uwuify-script-${Date.now()}.sh`);
-    fs.writeFileSync(bashScriptPath, bashScript, { mode: 0o755 });
-
-    spawnSync(bashScriptPath, [tempDir, uwuifyBinaryPath], { stdio: 'inherit' });
-    fs.unlinkSync(bashScriptPath);
+    logger.log("Running uwuify directly on each markdown file");
+    
+    // Process each markdown file directly with the uwuify binary
+    const processFiles = `
+      find ${tempDir} -name "*.md" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | while read file; do
+        echo "Processing $file"
+        # Save original content for comparison
+        cp "$file" "$file.orig"
+        # Process the file with uwuify
+        "${uwuifyBinaryPath}" -t 32 "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        # Check if the file was changed
+        if ! diff -q "$file" "$file.orig" > /dev/null; then
+          echo "File changed: $file"
+        else
+          echo "No changes in file: $file"
+        fi
+        # Remove the original file
+        rm "$file.orig"
+      done
+    `;
+    
+    const processOutput = execSync(processFiles, { encoding: 'utf-8', shell: '/bin/bash' });
+    logger.log("Process output:", processOutput);
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
     
     if (!gitStatus) {
       logger.log("No changes were made to markdown files. Creating empty commit.");
-      execSync('git commit --allow-empty -m "uwu (no changes found)"', { stdio: 'inherit', cwd: tempDir });
+      // For testing purposes, let's create a simple change to verify git works
+      fs.writeFileSync(path.join(tempDir, 'UWUIFY_TEST.md'), 'This is a test file created by uwuify bot');
+      execSync('git add UWUIFY_TEST.md', { stdio: 'inherit', cwd: tempDir });
+      execSync('git commit -m "uwu (test file added since no changes were found)"', { stdio: 'inherit', cwd: tempDir });
     } else {
       logger.log(`Changes detected: ${gitStatus.split("\n").length} files modified`);
       execSync('git add .', { stdio: 'inherit', cwd: tempDir });
