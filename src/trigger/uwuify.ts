@@ -1,5 +1,6 @@
 import { logger, task } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
+import { createAppAuth } from "@octokit/auth-app";
 
 // Interface for GitHub context to be passed to the worker
 interface GitHubContext {
@@ -8,8 +9,6 @@ interface GitHubContext {
   issueNumber: number;
   requester: string;
   installationId: number;
-  branch?: string;
-  repoStats?: RepoStats;
   requestTimestamp?: string;
   requestId?: string;
 }
@@ -40,16 +39,22 @@ export const uwuifyRepositoryTask = task({
       // Create an authenticated Octokit instance
       const octokit = await createAuthenticatedOctokit(payload.installationId);
       
-      // Get the repository statistics if not provided
-      let repoStats = payload.repoStats;
-      if (!repoStats) {
-        try {
-          repoStats = await getRepositoryStatistics(octokit, payload.owner, payload.repo);
-          logger.log("Gathered repository statistics", { repoStats });
-        } catch (statsError) {
-          logger.error("Error gathering repository statistics", { error: statsError });
-          // Continue with the process even if stats gathering fails
-        }
+      // Post an immediate reply comment
+      await postReplyComment(octokit, payload.owner, payload.repo, payload.issueNumber);
+      logger.log("Posted initial reply comment");
+      
+      // Create a new branch
+      const branch = await createBranch(octokit, payload.owner, payload.repo, payload.issueNumber);
+      logger.log("Created branch", { branch });
+      
+      // Gather repository statistics
+      let repoStats: RepoStats | undefined;
+      try {
+        repoStats = await getRepositoryStatistics(octokit, payload.owner, payload.repo);
+        logger.log("Gathered repository statistics", { repoStats });
+      } catch (statsError) {
+        logger.error("Error gathering repository statistics", { error: statsError });
+        // Continue with the process even if stats gathering fails
       }
 
       // Find all markdown files in the repository
@@ -61,7 +66,7 @@ export const uwuifyRepositoryTask = task({
         octokit,
         payload.owner,
         payload.repo,
-        payload.branch || `uwuify-issue-${payload.issueNumber}`,
+        branch,
         markdownFiles
       );
       
@@ -72,7 +77,7 @@ export const uwuifyRepositoryTask = task({
         octokit,
         payload.owner,
         payload.repo,
-        payload.branch || `uwuify-issue-${payload.issueNumber}`,
+        branch,
         payload.issueNumber,
         repoStats
       );
@@ -122,11 +127,47 @@ export const uwuifyRepositoryTask = task({
 
 // Create an authenticated Octokit instance
 async function createAuthenticatedOctokit(installationId: number): Promise<any> {
-  // This function would need to be implemented based on your GitHub authentication method
-  // For now, we'll assume it's imported from elsewhere
-  // This is a placeholder that would need to be replaced with actual implementation
-  const { createAuthenticatedOctokit } = await import("@/lib/github-auth");
-  return createAuthenticatedOctokit(installationId);
+  try {
+    // GitHub App credentials should be stored in environment variables
+    const appId = process.env.GITHUB_APP_ID;
+    const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    
+    if (!appId || !privateKey) {
+      throw new Error("GitHub App credentials not found in environment variables");
+    }
+    
+    const octokit = new Octokit({
+      authStrategy: createAppAuth,
+      auth: {
+        appId,
+        privateKey,
+        installationId,
+      },
+    });
+    
+    return octokit;
+  } catch (error) {
+    logger.error("Error creating authenticated Octokit instance", { error });
+    throw error;
+  }
+}
+
+// Post an immediate reply comment
+async function postReplyComment(octokit: any, owner: string, repo: string, issueNumber: number): Promise<void> {
+  try {
+    // Post the reply comment
+    await octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      body: "see you, uwuing..."
+    });
+    
+    logger.log(`Posted immediate reply to issue #${issueNumber}`);
+  } catch (error) {
+    logger.error('Error posting reply comment:', { error });
+    throw error; // Re-throw to be handled by the caller
+  }
 }
 
 // Post an error comment to notify the user
@@ -144,6 +185,35 @@ async function postErrorComment(octokit: any, owner: string, repo: string, issue
   } catch (commentError) {
     logger.error('Error posting error comment:', { error: commentError });
     // We don't throw here as this is already error handling
+  }
+}
+
+// Create a new branch from main
+async function createBranch(octokit: any, owner: string, repo: string, issueNumber: number): Promise<string> {
+  try {
+    // Get the SHA of the latest commit on the main branch
+    const { data: refData } = await octokit.git.getRef({
+      owner,
+      repo,
+      ref: 'heads/main',
+    });
+    
+    const mainSha = refData.object.sha;
+    
+    // Create a new branch
+    const branchName = `uwuify-issue-${issueNumber}`;
+    
+    await octokit.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branchName}`,
+      sha: mainSha,
+    });
+    
+    return branchName;
+  } catch (error) {
+    logger.error('Error creating branch:', { error });
+    throw error; // Re-throw to be handled by the caller
   }
 }
 
