@@ -11,10 +11,10 @@ import { createAppAuth } from '@octokit/auth-app';
 /**
  * Process a repository with the uwuify binary
  * @param repoUrl - URL of the repository to clone
- * @param branchName - Name of the branch to create
+ * @param branchName - Name of the branch to c reate
  * @returns Path to the cloned repository
  */
-export async function uwuifyRepository(repoUrl: string, branchName: string): Promise<string> {
+export async function uwuifyRepository($1, installationIdParam?: string): Promise<string> {
   logger.log("Starting repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
@@ -23,7 +23,8 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
   const githubAppId = process.env.GITHUB_APP_ID;
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
   const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
-  const installationId = process.env.GITHUB_INSTALLATION_ID;
+  // installationId will be passed as a function parameter
+  let installationId: string | undefined;
 
   if (!githubAppId || !githubPrivateKey || !githubWebhookSecret || !installationId) {
     logger.warn("GitHub App credentials missing. Git operations may fail.");
@@ -33,6 +34,7 @@ export async function uwuifyRepository(repoUrl: string, branchName: string): Pro
   const [owner, repo] = repoUrlMatch ? [repoUrlMatch[1], repoUrlMatch[2]] : [null, null];
 
   let authenticatedRepoUrl = repoUrl;
+  installationId = installationIdParam;
   let installationAuthentication;
 
   if (githubPrivateKey && githubAppId && owner && repo && installationId) {

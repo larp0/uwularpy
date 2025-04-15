@@ -24,7 +24,7 @@ export async function runUwuifyTask(payload: GitHubContext, ctx: any) {
     
     // Clone and process the repository using the binary
     const repoUrl = `https://github.com/${payload.owner}/${payload.repo}.git`;
-    const repoDir = await uwuifyRepository(repoUrl, branchName);
+    const repoDir = await uwuifyRepository({repoUrl, branchName}, `${payload.installationId}`);
     logger.log("Processed repository", { repoDir });
     
     // Gather repository statistics
