@@ -1,7 +1,9 @@
 // src/app/api/webhook/route.ts
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyWebhookSignature } from '@/lib/github-auth';
+import { verifyWebhookSignature } from '@/services/github-auth';
+import { getClient, triggerTask } from '@/services/trigger-client';
+import { generateRequestId, GitHubContext } from '@/services/task-types';
 
 // POST handler for webhook
 export async function POST(request: NextRequest) {
@@ -31,14 +33,8 @@ export async function POST(request: NextRequest) {
         console.log(`Mention detected in issue #${issueNumber} by ${requester}`);
         
         try {
-          // Dynamically import the trigger client and task to avoid circular dependencies
-          const { getClient } = await import('@/trigger');
-          const { uwuifyRepositoryTask } = await import('@/trigger/uwuify');
-          
-          // Trigger the uwuify repository task using trigger.dev
-          // All processing will be handled by trigger.dev
-          const client = getClient();
-          const runId = await client.runTask(uwuifyRepositoryTask, {
+          // Prepare the context for the task
+          const context: GitHubContext = {
             owner,
             repo,
             issueNumber,
@@ -46,14 +42,17 @@ export async function POST(request: NextRequest) {
             installationId: body.installation.id,
             requestTimestamp: new Date().toISOString(),
             requestId: generateRequestId(),
-          });
+          };
           
-          console.log(`Triggered uwuify repository task, run ID: ${runId}`);
+          // Trigger the uwuify repository task using trigger.dev v3 API
+          const runHandle = await triggerTask("uwuify-repository", context);
+          
+          console.log(`Triggered uwuify repository task, run ID: ${runHandle.id}`);
           
           // Return success response immediately after triggering the task
           return NextResponse.json({ 
             message: 'Webhook processed successfully', 
-            runId: runId 
+            runId: runHandle.id 
           }, { status: 200 });
         } catch (error) {
           console.error('Error triggering uwuify repository task:', error);
@@ -73,13 +72,4 @@ export async function POST(request: NextRequest) {
       message: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 });
   }
-}
-
-/**
- * Generates a unique request ID for tracking
- * 
- * @returns A unique ID string
- */
-function generateRequestId(): string {
-  return `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 }
