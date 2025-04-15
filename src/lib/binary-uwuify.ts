@@ -8,7 +8,7 @@ import * as os from 'os';
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from '@octokit/auth-app';
 
-/**
+/** 
  * Process a repository with the uwuify binary
  * @param repoUrl - URL of the repository to clone
  * @param branchName - Name of the branch to c reate
@@ -24,7 +24,7 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
   const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
   // installationId will be passed as a function parameter
-  let installationId: string | undefined;
+  let installationId = installationIdParam;
 
   if (!githubAppId || !githubPrivateKey || !githubWebhookSecret || !installationId) {
     logger.warn("GitHub App credentials missing. Git operations may fail.");
