@@ -7,8 +7,9 @@ import { GitHubContext } from "../services/task-types";
 // This helps break circular dependencies
 export const uwuifyRepositoryTask = task({
   id: "uwuify-repository",
+  machine: "large-2x",
   // Set a longer maxDuration for repository processing
-  maxDuration: 600, // 10 minutes
+  maxDuration: 600, // 20 minutes
   run: async (payload: GitHubContext, { ctx }) => {
     // Dynamically import the implementation to avoid circular dependencies
     const { runUwuifyTask } = await import("./uwuify-implementation");
