@@ -75,15 +75,10 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     logger.log(`Creating branch: ${branchName}`);
     execSync(`git checkout -b ${branchName}`, { stdio: 'inherit', cwd: tempDir });
 
-    // Set Git identity if not already configured
-    try {
-      execSync('git config user.email', { stdio: 'pipe', cwd: tempDir });
-      execSync('git config user.name', { stdio: 'pipe', cwd: tempDir });
-    } catch (e) {
-      logger.log("Setting default Git identity");
-      execSync('git config user.email "uwuify-bot@example.com"', { stdio: 'inherit', cwd: tempDir });
-      execSync('git config user.name "UwUify Bot"', { stdio: 'inherit', cwd: tempDir });
-    }
+    // Always set Git identity to ensure we can commit
+    logger.log("Setting Git identity for commit operations");
+    execSync('git config user.email "uwularpy-bot@larp.dev"', { stdio: 'inherit', cwd: tempDir });
+    execSync('git config user.name "uwularpy bot"', { stdio: 'inherit', cwd: tempDir });
 
     logger.log("Running uwuify via optimized bash script");
 
@@ -123,7 +118,24 @@ fd -e md -t f . "$REPO_DIR" --exclude node_modules --exclude .git --hidden | xar
 
     logger.log("Committing changes");
     execSync('git add .', { stdio: 'inherit', cwd: tempDir });
-    execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
+    
+    // Try to commit, with better error handling
+    try {
+      execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
+    } catch (commitError) {
+      logger.error(`Git commit failed: ${commitError instanceof Error ? commitError.message : 'Unknown error'}`);
+      
+      // Check if there are any changes to commit
+      const status = execSync('git status --porcelain', { stdio: 'pipe', cwd: tempDir }).toString();
+      if (!status.trim()) {
+        logger.warn("No changes to commit - this may be expected if no markdown files were modified");
+        // Create an empty commit to ensure we have something to push
+        execSync('git commit --allow-empty -m "uwu (no changes)"', { stdio: 'inherit', cwd: tempDir });
+      } else {
+        // There are changes but commit still failed - rethrow
+        throw commitError;
+      }
+    }
 
     logger.log("Configuring Git for push");
     if (installationAuthentication && owner && repo) {
