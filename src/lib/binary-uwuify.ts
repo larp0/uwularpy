@@ -102,19 +102,22 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     execSync('git config --list | grep user.', { stdio: 'inherit', cwd: tempDir });
 
     // Create a batch processing approach for large repositories
-    logger.log("Using improved batch processing with detailed logging for large repositories");
+    logger.log("Using parallel processing with timeouts to handle large repositories");
     
-    // Create a script file that will handle the uwuification in batches
+    // Create a script file that will handle the uwuification in batches with parallel processing
     const batchScript = `#!/bin/bash
-# Enable command tracing for detailed logs
-set -x
+# Enable faster processing with timeouts
 set -e
 
 REPO_DIR="$1"
 UWUIFY_BINARY="$2"
-BATCH_SIZE=50
+MAX_FILES=5000000  # Maximum files to process to avoid timeouts
+MAX_PARALLEL=32  # Number of parallel processes
+TIMEOUT_PER_FILE=15  # Seconds per file before timeout
+
 TOTAL_PROCESSED=0
 CHANGED_FILES=0
+ERRORS=0
 
 echo "Repository directory: $REPO_DIR"
 echo "UwUify binary path: $UWUIFY_BINARY"
@@ -129,9 +132,29 @@ find "$REPO_DIR" -name "*.md" -type f -not -path "*/node_modules/*" -not -path "
 TOTAL_FILES=$(wc -l < /tmp/md_files_list.txt)
 echo "Found $TOTAL_FILES markdown files to process"
 
-# Display first 10 files for verification
+# If too many files, limit to MAX_FILES and select a representative sample
+if [ "$TOTAL_FILES" -gt "$MAX_FILES" ]; then
+  echo "Repository has too many files ($TOTAL_FILES). Limiting to $MAX_FILES files to avoid timeout."
+  # Get first 10 files, last 10 files, and random selection from the middle
+  head -n 10 /tmp/md_files_list.txt > /tmp/md_files_selected.txt
+  tail -n 10 /tmp/md_files_list.txt >> /tmp/md_files_selected.txt
+  
+  # Get random selection from the middle (MAX_FILES - 20 files)
+  MIDDLE_FILES=$((MAX_FILES - 20))
+  if [ "$MIDDLE_FILES" -gt 0 ]; then
+    # Skip the first 10 lines, shuffle, take the first MIDDLE_FILES lines
+    tail -n +11 /tmp/md_files_list.txt | head -n -10 | sort -R | head -n $MIDDLE_FILES >> /tmp/md_files_selected.txt
+  fi
+  
+  # Replace original list with selected files
+  mv /tmp/md_files_selected.txt /tmp/md_files_list.txt
+  TOTAL_FILES=$(wc -l < /tmp/md_files_list.txt)
+  echo "Selected $TOTAL_FILES representative files for processing"
+fi
+
+# Display sample of files for verification
 echo "Sample of files to process:"
-head -n 10 /tmp/md_files_list.txt || echo "ERROR: Could not display sample files!"
+head -n 5 /tmp/md_files_list.txt || echo "ERROR: Could not display sample files!"
 
 # If no files found, exit early
 if [ "$TOTAL_FILES" -eq 0 ]; then
@@ -144,165 +167,166 @@ TEMP_DIR=$(mktemp -d)
 echo "Created temporary directory for processing: $TEMP_DIR"
 
 # Verify filesystem access and permissions
-echo "Checking file permissions and access:"
-ls -la "$REPO_DIR" | head -n 5
 echo "Testing file read/write:"
 TEST_PATH="$REPO_DIR/test-uwuify-access.txt"
 echo "Test" > "$TEST_PATH" && echo "Write test: SUCCESS" || echo "Write test: FAILED"
 cat "$TEST_PATH" && echo "Read test: SUCCESS" || echo "Read test: FAILED"
 rm "$TEST_PATH" && echo "Delete test: SUCCESS" || echo "Delete test: FAILED"
 
-# Process first file only as a test
-TEST_FILE=$(head -n 1 /tmp/md_files_list.txt)
-echo "===== TESTING PROCESSING WITH FIRST FILE: $TEST_FILE ====="
-if [ -f "$TEST_FILE" ]; then
-  TEST_TEMP="$TEMP_DIR/test.tmp"
-  echo "File details:"
-  ls -la "$TEST_FILE"
-  echo "File content preview (first 10 lines):"
-  head -n 10 "$TEST_FILE"
-  echo "Saving original file for comparison"
-  cp "$TEST_FILE" "$TEST_FILE.orig" || echo "ERROR: Could not copy test file!"
+# Create a function to process a batch of files in parallel
+process_batch() {
+  local start_idx=$1
+  local batch_size=$2
   
-  echo "Running uwuify on test file"
-  set +e  # Don't exit on error here
-  "$UWUIFY_BINARY" -t 32 "$TEST_FILE" > "$TEST_TEMP" 2>/tmp/uwuify_test_error.log
-  UWUIFY_EXIT_CODE=$?
-  set -e  # Re-enable exit on error
+  # Create an array to hold background processes
+  pids=()
   
-  if [ $UWUIFY_EXIT_CODE -ne 0 ]; then
-    echo "ERROR: UwUify failed on test file with exit code $UWUIFY_EXIT_CODE"
-    echo "Error log:"
-    cat /tmp/uwuify_test_error.log
-    echo "Attempting to continue anyway..."
-  else
-    echo "UwUify completed successfully on test file"
-  fi
+  # Extract the batch of files to process
+  sed -n "${start_idx},$(($start_idx + $batch_size - 1))p" /tmp/md_files_list.txt > /tmp/batch_${start_idx}.txt
   
-  echo "Comparing test file before and after:"
-  if [ -f "$TEST_TEMP" ]; then
-    echo "Output file exists, size: $(wc -c < "$TEST_TEMP") bytes"
-    echo "Diff output (first 20 lines):"
-    diff -u "$TEST_FILE" "$TEST_TEMP" | head -n 20 || echo "Files are different (expected)"
-  else
-    echo "ERROR: Output file was not created!"
-  fi
-  
-  echo "Test complete, continuing with batch processing"
-else
-  echo "ERROR: Test file not found or not accessible!"
-  ls -la "$(dirname "$TEST_FILE")" || echo "ERROR: Cannot list directory!"
-fi
-
-# Counter for error tracking
-ERRORS=0
-
-# Process files one by one to avoid memory issues
-echo "Starting main processing loop"
-cat /tmp/md_files_list.txt | while IFS= read -r file; do
-  echo "------------------------------"
-  echo "Processing: $file"
-  
-  # Check if the file exists and is readable
-  if [ ! -f "$file" ]; then
-    echo "ERROR: File doesn't exist or is not accessible: $file"
-    ERRORS=$((ERRORS + 1))
-    continue
-  fi
-  
-  # Check file size (don't process files that are too large)
-  FILE_SIZE=$(du -k "$file" | cut -f1)
-  if [ "\${FILE_SIZE}" -gt 102400 ]; then
-    echo "WARNING: File too large (\${FILE_SIZE}KB), skipping: $file"
-    continue
-  fi
-  
-  # Create a unique name for the temporary file
-  TEMP_FILE="$TEMP_DIR/$(basename "$file").tmp"
-  
-  # Process the file with uwuify, with error handling
-  echo "Running uwuify binary on: $file"
-  set +e  # Don't exit on error
-  "$UWUIFY_BINARY" -t 32 "$file" > "$TEMP_FILE" 2>/tmp/uwuify_error.log
-  UWUIFY_EXIT_CODE=$?
-  set -e  # Re-enable exit on error
-  
-  if [ $UWUIFY_EXIT_CODE -eq 0 ]; then
-    echo "UwUify completed successfully"
-    
-    # Compare the files to see if there are changes
-    if ! cmp -s "$file" "$TEMP_FILE"; then
-      echo "File changed, replacing original"
-      # File was changed, replace it
-      mv "$TEMP_FILE" "$file" || { echo "ERROR: Could not replace file!"; ERRORS=$((ERRORS + 1)); }
-      echo "File changed: $file"
-      CHANGED_FILES=$((CHANGED_FILES + 1))
-      
-      # Every 1000 changed files, make a commit to avoid large git operations
-      if [ "$CHANGED_FILES" -ge 1000 ]; then
-        echo "Committing batch of $CHANGED_FILES changed files"
-        (cd "$REPO_DIR" && git add -A && git commit -m "uwuify batch of markdown files") || { echo "ERROR: Git commit failed!"; ERRORS=$((ERRORS + 1)); }
-        CHANGED_FILES=0
-      fi
-    else
-      echo "No changes in file, keeping original"
-      # No changes, remove temp file
-      rm "$TEMP_FILE" || echo "WARNING: Could not remove temp file: $TEMP_FILE"
+  # Process each file in the batch
+  while IFS= read -r file; do
+    # Skip if file doesn't exist
+    if [ ! -f "$file" ]; then
+      echo "ERROR: File doesn't exist or is not accessible: $file"
+      ERRORS=$((ERRORS + 1))
+      continue
     fi
-  else
-    ERRORS=$((ERRORS + 1))
-    echo "ERROR processing file: $file (exit code: $UWUIFY_EXIT_CODE)"
-    echo "UwUify error log:"
-    cat /tmp/uwuify_error.log
-    # If the uwuify command fails, remove the temp file and continue
-    [ -f "$TEMP_FILE" ] && rm "$TEMP_FILE"
+    
+    # Check file size (don't process files that are too large)
+    FILE_SIZE=$(du -k "$file" | cut -f1)
+    if [ "\${FILE_SIZE}" -gt 102400 ]; then
+      echo "WARNING: File too large (\${FILE_SIZE}KB), skipping: $file"
+      continue
+    fi
+    
+    # Create a unique name for the temporary file
+    TEMP_FILE="$TEMP_DIR/$(basename "$file").tmp"
+    
+    # Process the file with uwuify in background with timeout
+    (
+      echo "Processing: $file"
+      if timeout ${TIMEOUT_PER_FILE}s "$UWUIFY_BINARY" -t 32 "$file" > "$TEMP_FILE" 2>/dev/null; then
+        # If successful, check if the file changed
+        if ! cmp -s "$file" "$TEMP_FILE"; then
+          # Replace the original file
+          mv "$TEMP_FILE" "$file"
+          echo "Changed: $file"
+          # Atomic file update for counting
+          echo "$file" >> /tmp/changed_files.txt
+        else
+          # No changes, clean up
+          rm "$TEMP_FILE"
+        fi
+      else
+        [ -f "$TEMP_FILE" ] && rm "$TEMP_FILE"
+        echo "Error or timeout processing: $file" >> /tmp/error_files.txt
+      fi
+      echo "$file" >> /tmp/processed_files.txt
+    ) &
+    
+    # Store the PID of the background process
+    pids+=($!)
+    
+    # If we've reached the maximum number of parallel processes, wait for one to finish
+    if [ \${#pids[@]} -ge $MAX_PARALLEL ]; then
+      wait -n  # Wait for any child process to finish
+      # Clean up the pids array to remove finished processes
+      new_pids=()
+      for pid in "\${pids[@]}"; do
+        if kill -0 $pid 2>/dev/null; then
+          new_pids+=($pid)
+        fi
+      done
+      pids=("\${new_pids[@]}")
+    fi
+  done < /tmp/batch_${start_idx}.txt
+  
+  # Wait for all remaining processes in this batch to finish
+  wait
+  
+  # Update counters based on results
+  if [ -f /tmp/processed_files.txt ]; then
+    TOTAL_PROCESSED=$(wc -l < /tmp/processed_files.txt)
+  fi
+  if [ -f /tmp/changed_files.txt ]; then
+    CHANGED_FILES=$(wc -l < /tmp/changed_files.txt)
+  fi
+  if [ -f /tmp/error_files.txt ]; then
+    ERRORS=$(wc -l < /tmp/error_files.txt)
   fi
   
-  TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
+  echo "Batch starting at $start_idx completed. Progress: $TOTAL_PROCESSED/$TOTAL_FILES files processed"
   
-  # Print progress periodically
-  if [ $((TOTAL_PROCESSED % 10)) -eq 0 ]; then
-    echo "Progress: $TOTAL_PROCESSED files processed (Errors: $ERRORS, Changed: $CHANGED_FILES)"
+  # Commit changes after each batch to avoid timeout issues with large commits
+  if [ -f /tmp/changed_files.txt ] && [ "$(wc -l < /tmp/changed_files.txt)" -gt 0 ]; then
+    echo "Committing batch of changed files"
+    (cd "$REPO_DIR" && git add -A && git commit -m "uwuify batch of markdown files" --quiet) || echo "ERROR: Git commit failed!"
+  fi
+}
+
+# Process files in batches of MAX_PARALLEL * 2
+BATCH_SIZE=$((MAX_PARALLEL * 2))
+for ((i=1; i<=TOTAL_FILES; i+=BATCH_SIZE)); do
+  echo "Processing batch starting at $i"
+  process_batch $i $BATCH_SIZE
+  
+  # Print progress after each batch
+  echo "Progress: $TOTAL_PROCESSED/$TOTAL_FILES files processed (Errors: $ERRORS, Changed: $CHANGED_FILES)"
+  
+  # Commit changes periodically to avoid large commits
+  if [ "$CHANGED_FILES" -gt 0 ] && [ "$((TOTAL_PROCESSED % 100))" -lt "$BATCH_SIZE" ]; then
+    echo "Periodic commit after $TOTAL_PROCESSED files"
+    (cd "$REPO_DIR" && git add -A && git commit -m "uwuify periodic commit after $TOTAL_PROCESSED files" --quiet) || echo "WARNING: Git commit failed!"
   fi
 done
 
-echo "First 10 files processed. Creating test file to ensure commit works."
+# Finish up with a final commit if there are any uncommitted changes
+echo "Final git operations"
+if [ -f /tmp/changed_files.txt ]; then
+  echo "Files changed: $CHANGED_FILES"
+  if [ "$CHANGED_FILES" -gt 0 ]; then
+    # Make sure all changes are committed
+    (cd "$REPO_DIR" && git add -A && git commit -m "uwuify final changes" --quiet) || echo "WARNING: Final git commit failed!"
+  fi
+fi
 
-# Create a test file to ensure we have something to commit
-echo "Creating test markdown file to ensure Git operations work"
-TEST_CONTENT="# Test UwUify File
+# Create a summary file to ensure we have something to commit
+echo "Creating summary markdown file"
+TEST_CONTENT="# UwUify Processing Results
 
-This is a test file created to verify that Git operations are working correctly.
-The uwuify processing script can commit and push this file even if other operations fail.
+This repository was processed by the UwUify bot.
 
 ## Processing Summary
 
 - Files found: $TOTAL_FILES
 - Files processed: $TOTAL_PROCESSED
-- Errors encountered: $ERRORS
 - Files changed: $CHANGED_FILES
+- Errors encountered: $ERRORS
+
+${CHANGED_FILES} files were successfully uwuified.
+
+${TOTAL_FILES} > ${MAX_FILES} ? 'Note: Only a subset of files was processed due to repository size.' : 'All files in the repository were processed.'
 
 Created automatically by the uwuify processing script.
 "
 
-echo "$TEST_CONTENT" > "$REPO_DIR/UWUIFY_TEST_RESULTS.md"
-(cd "$REPO_DIR" && git add UWUIFY_TEST_RESULTS.md && git commit -m "Add uwuify test results") || echo "ERROR: Git commit of test file failed!"
+echo "$TEST_CONTENT" > "$REPO_DIR/UWUIFY_RESULTS.md"
+(cd "$REPO_DIR" && git add UWUIFY_RESULTS.md && git commit -m "Add uwuify processing results" --quiet) || echo "ERROR: Git commit of summary file failed!"
 
 # Clean up
 echo "Cleaning up temporary files"
 rm -rf "$TEMP_DIR" || echo "WARNING: Could not remove temp dir: $TEMP_DIR"
-rm /tmp/md_files_list.txt || echo "WARNING: Could not remove files list"
-[ -f /tmp/uwuify_error.log ] && rm /tmp/uwuify_error.log
-[ -f /tmp/uwuify_test_error.log ] && rm /tmp/uwuify_test_error.log
+rm -f /tmp/md_files_list.txt /tmp/processed_files.txt /tmp/changed_files.txt /tmp/error_files.txt
+rm -f /tmp/batch_*.txt
 
 echo "Processing summary:"
 echo "- Total files found: $TOTAL_FILES"
 echo "- Files processed: $TOTAL_PROCESSED"
-echo "- Errors encountered: $ERRORS"
 echo "- Files changed: $CHANGED_FILES"
+echo "- Errors encountered: $ERRORS"
 
-echo "Completed processing $TOTAL_PROCESSED files"
-echo "All files processed successfully"
+echo "Completed processing files"
 `;
 
     const batchScriptPath = path.join(os.tmpdir(), `uwuify-batch-${Date.now()}.sh`);
@@ -317,12 +341,12 @@ echo "All files processed successfully"
       
       const batchOutput = execSync(bashCommand, { 
         encoding: 'utf-8',
-        maxBuffer: 4 * 1024 * 1024 * 1024, // 1GB buffer to handle very large outputs
+        maxBuffer: 12 * 1024 * 1024 * 1024, // 1GB buffer to handle very large outputs
         stdio: ['inherit', 'pipe', 'pipe'],
         shell: '/bin/bash',
         env: {
           ...process.env,
-          NODE_OPTIONS: '--max-old-space-size=8192' // Increase Node.js memory limit
+          NODE_OPTIONS: '--max-old-space-size=14192' // Increase Node.js memory limit
         }
       });
       
