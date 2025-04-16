@@ -261,24 +261,55 @@ async function createPullRequest(
   issueNumber: number,
   repoStats?: RepoStats
 ): Promise<string> {
-  try {
-    // Get repository information to determine the default branch
-    const { data: repoData } = await octokit.repos.get({
-      owner,
-      repo,
-    });
-    
-    const defaultBranch = repoData.default_branch || 'main';
-    logger.log(`Using repository default branch: ${defaultBranch}`);
-    
-    // Create the pull request
-    const { data: pr } = await octokit.pulls.create({
-      owner,
-      repo,
-      title: `Uwuify markdown files for issue #${issueNumber}`,
-      head: branch,
-      base: defaultBranch,
-      body: `This PR uwuifies all markdown files in the repository as requested in issue #${issueNumber}.
+  // Maximum retry attempts
+  const maxRetries = 3;
+  let lastError = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      logger.log(`Creating pull request attempt ${attempt}/${maxRetries}`, { owner, repo, branch });
+      
+      // Verify the branch exists on the remote before creating the PR
+      try {
+        // Check if the branch exists
+        await octokit.repos.getBranch({
+          owner,
+          repo,
+          branch,
+        });
+        logger.log(`Confirmed branch "${branch}" exists on remote`);
+      } catch (branchError) {
+        logger.error(`Branch verification failed: ${branchError instanceof Error ? branchError.message : 'Unknown error'}`);
+        throw new Error(`The branch "${branch}" does not exist on the remote repository. Push failed or repository is misconfigured.`);
+      }
+      
+      // Get repository information to determine the default branch
+      const { data: repoData } = await octokit.repos.get({
+        owner,
+        repo,
+      });
+      
+      const defaultBranch = repoData.default_branch || 'main';
+      logger.log(`Using repository default branch: ${defaultBranch}`);
+      
+      // Refresh token if needed
+      if (attempt > 1) {
+        logger.log("Refreshing GitHub authentication token before retry");
+        try {
+          await octokit.auth();
+        } catch (refreshError) {
+          logger.warn(`Token refresh attempt failed: ${refreshError instanceof Error ? refreshError.message : 'Unknown error'}`);
+        }
+      }
+      
+      // Create the pull request
+      const { data: pr } = await octokit.pulls.create({
+        owner,
+        repo,
+        title: `Uwuify markdown files for issue #${issueNumber}`,
+        head: branch,
+        base: defaultBranch,
+        body: `This PR uwuifies all markdown files in the repository as requested in issue #${issueNumber}.
 
 ${formatRepositoryStatistics(repoStats)}
 
@@ -286,13 +317,42 @@ ${formatRepositoryStatistics(repoStats)}
 - Uwuified all markdown files in the repository using the Rust binary implementation
 - Created by @uwularpy bot
 `,
-    });
-    
-    return pr.html_url;
-  } catch (error) {
-    logger.error('Error creating pull request:', { error });
-    throw error;
+      });
+      
+      logger.log(`Pull request created successfully: ${pr.html_url}`);
+      return pr.html_url;
+    } catch (error) {
+      lastError = error;
+      logger.error(`Error creating pull request (attempt ${attempt}/${maxRetries}):`, { error });
+      
+      // Special handling for common errors
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.includes('rate limit')) {
+        logger.warn("Rate limit detected, waiting before retry");
+        // Wait longer for rate limit (60 seconds)
+        await new Promise(resolve => setTimeout(resolve, 60000));
+      } else if (errorMessage.includes('Not Found') || errorMessage.includes('Reference does not exist')) {
+        logger.error("Branch not found error - branch may not exist on remote");
+        throw new Error(`Branch "${branch}" not found on remote repository. Push operation may have failed.`);
+      } else if (errorMessage.includes('fetch failed')) {
+        logger.warn("Network error detected, waiting before retry");
+        // Wait 5 seconds before retry for network errors
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      } else {
+        // For other errors, wait a shorter time
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      // If this was the last attempt, throw the error
+      if (attempt === maxRetries) {
+        throw new Error(`Failed to create pull request after ${maxRetries} attempts: ${errorMessage}`);
+      }
+    }
   }
+  
+  // This should never be reached due to the throw in the last iteration of the loop
+  throw lastError || new Error('Failed to create pull request for unknown reasons');
 }
 
 // Notify the requester about the PR
