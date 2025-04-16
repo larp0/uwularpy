@@ -182,7 +182,7 @@ process_batch() {
   pids=()
   
   # Extract the batch of files to process
-  sed -n "${start_idx},$(($start_idx + $batch_size - 1))p" /tmp/md_files_list.txt > /tmp/batch_${start_idx}.txt
+  sed -n "\${start_idx},\$((\${start_idx} + \${batch_size} - 1))p" /tmp/md_files_list.txt > /tmp/batch_\${start_idx}.txt
   
   # Process each file in the batch
   while IFS= read -r file; do
@@ -240,7 +240,7 @@ process_batch() {
       done
       pids=("\${new_pids[@]}")
     fi
-  done < /tmp/batch_${start_idx}.txt
+  done < /tmp/batch_\${start_idx}.txt
   
   # Wait for all remaining processes in this batch to finish
   wait
