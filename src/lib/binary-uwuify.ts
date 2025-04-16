@@ -114,6 +114,11 @@ BATCH_SIZE=50
 TOTAL_PROCESSED=0
 CHANGED_FILES=0
 
+echo "Repository directory: $REPO_DIR"
+echo "UwUify binary path: $UWUIFY_BINARY"
+echo "Testing uwuify binary..."
+"$UWUIFY_BINARY" --version
+
 # Find all markdown files, excluding .git and node_modules
 echo "Finding all markdown files..."
 find "$REPO_DIR" -name "*.md" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" > /tmp/md_files_list.txt
@@ -122,50 +127,72 @@ find "$REPO_DIR" -name "*.md" -type f -not -path "*/node_modules/*" -not -path "
 TOTAL_FILES=$(wc -l < /tmp/md_files_list.txt)
 echo "Found $TOTAL_FILES markdown files to process"
 
+# Display first 10 files for verification
+echo "Sample of files to process:"
+head -n 10 /tmp/md_files_list.txt
+
 # If no files found, exit early
 if [ "$TOTAL_FILES" -eq 0 ]; then
   echo "No markdown files found in repository"
   exit 0
 fi
 
-# Process files in batches
-while IFS= read -r BATCH_FILES; do
-  # Process each file in the current batch
-  echo "$BATCH_FILES" | while IFS= read -r file; do
-    echo "Processing: $file"
-    # Save original content for comparison
-    cp "$file" "$file.orig"
-    # Process the file with uwuify
-    "$UWUIFY_BINARY" -t 32 "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-    # Check if the file was changed
-    if ! diff -q "$file" "$file.orig" > /dev/null; then
+# Create a directory for temporary file processing
+TEMP_DIR=$(mktemp -d)
+echo "Created temporary directory for processing: $TEMP_DIR"
+
+# Process files one by one to avoid memory issues
+cat /tmp/md_files_list.txt | while IFS= read -r file; do
+  echo "Processing: $file"
+  # Create a unique name for the temporary file
+  TEMP_FILE="$TEMP_DIR/$(basename "$file").tmp"
+  
+  # Process the file with uwuify, with error handling
+  if "$UWUIFY_BINARY" -t 32 "$file" > "$TEMP_FILE"; then
+    # Compare the files to see if there are changes
+    if ! cmp -s "$file" "$TEMP_FILE"; then
+      # File was changed, replace it
+      mv "$TEMP_FILE" "$file"
       echo "File changed: $file"
       CHANGED_FILES=$((CHANGED_FILES + 1))
+      
+      # Every 1000 changed files, make a commit to avoid large git operations
+      if [ "$CHANGED_FILES" -ge 1000 ]; then
+        echo "Committing batch of 1000 changed files"
+        (cd "$REPO_DIR" && git add -A && git commit -m "uwuify batch of markdown files")
+        CHANGED_FILES=0
+      fi
     else
+      # No changes, remove temp file
+      rm "$TEMP_FILE"
       echo "No changes in file: $file"
     fi
-    # Remove the original file
-    rm "$file.orig"
-    TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
-    # Print progress
-    if [ $((TOTAL_PROCESSED % 10)) -eq 0 ]; then
-      echo "Progress: $TOTAL_PROCESSED/$TOTAL_FILES files processed"
-    fi
-  done
-  
-  # Commit this batch if there are changes
-  if [ "$CHANGED_FILES" -gt 0 ]; then
-    cd "$REPO_DIR"
-    git add -A
-    git commit -m "uwuify batch of markdown files"
-    CHANGED_FILES=0
-    echo "Committed batch of changes"
+  else
+    echo "Error processing file: $file"
+    # If the uwuify command fails, remove the temp file and continue
+    [ -f "$TEMP_FILE" ] && rm "$TEMP_FILE"
   fi
   
-done < <(split -l $BATCH_SIZE /tmp/md_files_list.txt)
+  TOTAL_PROCESSED=$((TOTAL_PROCESSED + 1))
+  
+  # Print progress periodically
+  if [ $((TOTAL_PROCESSED % 100)) -eq 0 ]; then
+    echo "Progress: $TOTAL_PROCESSED/$TOTAL_FILES files processed"
+  fi
+done
+
+# Commit any remaining changes
+if [ "$CHANGED_FILES" -gt 0 ]; then
+  echo "Committing final batch of $CHANGED_FILES changed files"
+  (cd "$REPO_DIR" && git add -A && git commit -m "uwuify final batch of markdown files")
+fi
+
+# Clean up
+rm -rf "$TEMP_DIR"
+rm /tmp/md_files_list.txt
 
 echo "Completed processing $TOTAL_PROCESSED files"
-echo "All batches processed successfully"
+echo "All files processed successfully"
 `;
 
     const batchScriptPath = path.join(os.tmpdir(), `uwuify-batch-${Date.now()}.sh`);
@@ -174,19 +201,32 @@ echo "All batches processed successfully"
     // Run the batch script
     logger.log("Starting batch processing script");
     try {
+      // Execute the script with increased buffer size and memory
       const batchOutput = execSync(`${batchScriptPath} "${tempDir}" "${uwuifyBinaryPath}"`, { 
         encoding: 'utf-8',
-      maxBuffer: 1000 * 1024 * 1024, // 1gb buffer
-        stdio: ['inherit', 'pipe', 'pipe'] 
+        maxBuffer: 500 * 1024 * 1024, // 500MB buffer
+        stdio: ['inherit', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '--max-old-space-size=8192' // Increase Node.js memory limit
+        }
       });
-      logger.log("Batch processing completed", { summary: batchOutput.slice(-2000) });
+      
+      // Log a summary of the processing
+      const outputLines = batchOutput.split('\n');
+      const lastLines = outputLines.slice(-100).join('\n'); // Get the last 100 lines
+      logger.log("Batch processing completed", { summary: lastLines });
     } catch (batchError) {
       logger.error(`Error during batch processing: ${batchError instanceof Error ? batchError.message : 'Unknown error'}`);
       logger.warn("Attempting to commit any changes that were made before the error");
     }
     
     // Remove the batch script
-    fs.unlinkSync(batchScriptPath);
+    try {
+      fs.unlinkSync(batchScriptPath);
+    } catch (e) {
+      logger.warn(`Could not remove batch script: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    }
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
