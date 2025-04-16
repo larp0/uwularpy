@@ -212,7 +212,7 @@ cat /tmp/md_files_list.txt | head -n 10 | while IFS= read -r file; do
   
   # Check file size (don't process files that are too large)
   FILE_SIZE=$(du -k "$file" | cut -f1)
-  if [ "$FILE_SIZE" -gt 1024 ]; then
+  if [ "$FILE_SIZE" -gt 102400 ]; then
     echo "WARNING: File too large (${FILE_SIZE}KB), skipping: $file"
     continue
   fi
@@ -317,7 +317,7 @@ echo "All files processed successfully"
       
       const batchOutput = execSync(bashCommand, { 
         encoding: 'utf-8',
-        maxBuffer: 1024 * 1024 * 1024, // 1GB buffer to handle very large outputs
+        maxBuffer: 4 * 1024 * 1024 * 1024, // 1GB buffer to handle very large outputs
         stdio: ['inherit', 'pipe', 'pipe'],
         shell: '/bin/bash',
         env: {
