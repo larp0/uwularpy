@@ -212,8 +212,8 @@ cat /tmp/md_files_list.txt | head -n 10 | while IFS= read -r file; do
   
   # Check file size (don't process files that are too large)
   FILE_SIZE=$(du -k "$file" | cut -f1)
-  if [ "$FILE_SIZE" -gt 102400 ]; then
-    echo "WARNING: File too large (${FILE_SIZE}KB), skipping: $file"
+  if [ "\${FILE_SIZE}" -gt 102400 ]; then
+    echo "WARNING: File too large (\${FILE_SIZE}KB), skipping: $file"
     continue
   fi
   
@@ -397,4 +397,58 @@ echo "All files processed successfully"
   }
 
   return tempDir;
+}
+
+/**
+ * Get top contributors of a repository by number of merged PRs
+ * @param repoPath - Path to the cloned repository
+ * @param limit - Maximum number of contributors to return
+ * @returns Array of top contributors with their PR counts
+ */
+export function getTopContributorsByMergedPRs(repoPath: string, limit: number = 5): Array<{name: string, count: number}> {
+  logger.log("Getting top contributors by merged PRs", { repoPath, limit });
+  
+  try {
+    // Make sure the path exists
+    if (!fs.existsSync(repoPath)) {
+      logger.error(`Repository path does not exist: ${repoPath}`);
+      return [];
+    }
+    
+    // Run git command to get authors of merged PRs
+    const command = 'git log --merges --format="%an" | sort | uniq -c | sort -nr';
+    logger.log(`Running command: ${command}`);
+    
+    const output = execSync(command, {
+      cwd: repoPath,
+      encoding: 'utf-8'
+    }).trim();
+    
+    if (!output) {
+      logger.log("No merged PRs found in repository");
+      return [];
+    }
+    
+    // Parse the output into contributor objects
+    const contributors = output
+      .split('\n')
+      .map(line => {
+        const match = line.trim().match(/^\s*(\d+)\s+(.+)$/);
+        if (match) {
+          return {
+            name: match[2],
+            count: parseInt(match[1], 10)
+          };
+        }
+        return null;
+      })
+      .filter((item): item is {name: string, count: number} => item !== null)
+      .slice(0, limit);
+    
+    logger.log(`Found ${contributors.length} top contributors`);
+    return contributors;
+  } catch (error) {
+    logger.error(`Error getting top contributors: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return [];
+  }
 }
