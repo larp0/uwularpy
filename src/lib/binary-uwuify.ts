@@ -199,7 +199,7 @@ ERRORS=0
 
 # Process files one by one to avoid memory issues
 echo "Starting main processing loop"
-cat /tmp/md_files_list.txt | head -n 10 | while IFS= read -r file; do
+cat /tmp/md_files_list.txt | while IFS= read -r file; do
   echo "------------------------------"
   echo "Processing: $file"
   
