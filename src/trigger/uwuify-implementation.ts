@@ -262,13 +262,22 @@ async function createPullRequest(
   repoStats?: RepoStats
 ): Promise<string> {
   try {
+    // Get repository information to determine the default branch
+    const { data: repoData } = await octokit.repos.get({
+      owner,
+      repo,
+    });
+    
+    const defaultBranch = repoData.default_branch || 'main';
+    logger.log(`Using repository default branch: ${defaultBranch}`);
+    
     // Create the pull request
     const { data: pr } = await octokit.pulls.create({
       owner,
       repo,
       title: `Uwuify markdown files for issue #${issueNumber}`,
       head: branch,
-      base: 'main',
+      base: defaultBranch,
       body: `This PR uwuifies all markdown files in the repository as requested in issue #${issueNumber}.
 
 ${formatRepositoryStatistics(repoStats)}

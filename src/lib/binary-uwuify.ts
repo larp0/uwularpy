@@ -391,6 +391,46 @@ echo "All files processed successfully"
       execSync('git add .', { stdio: 'inherit', cwd: tempDir });
       execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
     }
+
+    // Push the branch to the remote repository
+    logger.log(`Pushing branch ${branchName} to remote repository`);
+    try {
+      execSync(`git push -u origin ${branchName}`, { 
+        stdio: 'inherit', 
+        cwd: tempDir,
+        env: {
+          ...process.env,
+          // Ensure git doesn't prompt for credentials
+          GIT_TERMINAL_PROMPT: '0',
+        }
+      });
+      logger.log("Successfully pushed changes to remote repository");
+    } catch (pushError) {
+      logger.error(`Error pushing to remote: ${pushError instanceof Error ? pushError.message : 'Unknown error'}`);
+      
+      // If pushing with the current URL fails, try with the authenticated URL (if available)
+      if (authenticatedRepoUrl !== repoUrl) {
+        logger.log("Trying to push with the authenticated URL");
+        try {
+          // Set remote URL to the authenticated one and try push again
+          execSync(`git remote set-url origin ${authenticatedRepoUrl}`, { stdio: 'inherit', cwd: tempDir });
+          execSync(`git push -u origin ${branchName}`, { 
+            stdio: 'inherit', 
+            cwd: tempDir,
+            env: {
+              ...process.env,
+              GIT_TERMINAL_PROMPT: '0',
+            }
+          });
+          logger.log("Successfully pushed changes to remote repository with authenticated URL");
+        } catch (authPushError) {
+          logger.error(`Error pushing with authenticated URL: ${authPushError instanceof Error ? authPushError.message : 'Unknown error'}`);
+          throw new Error(`Failed to push branch to remote: ${authPushError instanceof Error ? authPushError.message : 'Unknown error'}`);
+        }
+      } else {
+        throw new Error(`Failed to push branch to remote: ${pushError instanceof Error ? pushError.message : 'Unknown error'}`);
+      }
+    }
   } catch (error) {
     logger.error(`Error during repository uwuification: ${error instanceof Error ? error.message : 'Unknown error'}`);
     throw error;
