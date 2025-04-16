@@ -206,7 +206,7 @@ process_batch() {
     # Process the file with uwuify in background with timeout
     (
       echo "Processing: $file"
-      if timeout ${TIMEOUT_PER_FILE}s "$UWUIFY_BINARY" -t 32 "$file" > "$TEMP_FILE" 2>/dev/null; then
+      if timeout \\\${TIMEOUT_PER_FILE}s "$UWUIFY_BINARY" -t 32 "$file" > "$TEMP_FILE" 2>/dev/null; then
         # If successful, check if the file changed
         if ! cmp -s "$file" "$TEMP_FILE"; then
           # Replace the original file
@@ -310,9 +310,9 @@ This repository was processed by the UwUify bot.
 - Files changed: $CHANGED_FILES
 - Errors encountered: $ERRORS
 
-${CHANGED_FILES} files were successfully uwuified.
+\${CHANGED_FILES} files were successfully uwuified.
 
-${TOTAL_FILES} > ${MAX_FILES} ? 'Note: Only a subset of files was processed due to repository size.' : 'All files in the repository were processed.'
+\${TOTAL_FILES} > \${MAX_FILES} ? 'Note: Only a subset of files was processed due to repository size.' : 'All files in the repository were processed.'
 
 Created automatically by the uwuify processing script.
 "
