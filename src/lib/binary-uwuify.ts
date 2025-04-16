@@ -267,9 +267,15 @@ process_batch() {
 
 # Process files in batches of MAX_PARALLEL * 2
 BATCH_SIZE=$((MAX_PARALLEL * 2))
+# Start with i=1 since bash arrays are 1-indexed
 for ((i=1; i<=TOTAL_FILES; i+=BATCH_SIZE)); do
   echo "Processing batch starting at $i"
-  process_batch $i $BATCH_SIZE
+  # Ensure start_idx is at least 1
+  start_idx=$i
+  if [ "$start_idx" -lt 1 ]; then
+    start_idx=1
+  fi
+  process_batch $start_idx $BATCH_SIZE
   
   # Print progress after each batch
   echo "Progress: $TOTAL_PROCESSED/$TOTAL_FILES files processed (Errors: $ERRORS, Changed: $CHANGED_FILES)"
