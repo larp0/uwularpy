@@ -14,7 +14,7 @@ import { createAppAuth } from '@octokit/auth-app';
  * @param branchName - Name of the branch to c reate
  * @returns Path to the cloned repository
  */
-export async function codexRepository(repoUrl: string, branchName: string, installationIdParam?: string): Promise<string> {
+export async function codexRepository(repoUrl: string, branchName: string, installationIdParam?: string, ctx: any): Promise<string> {
   logger.log("Starting repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
@@ -87,10 +87,10 @@ export async function codexRepository(repoUrl: string, branchName: string, insta
 
     // Install codex globally
     logger.log("Installing @openai/codex globally");
-    execSync("npm install @openai/codex -g", { stdio: "inherit" });
+    //execSync("npm install @openai/codex -g", { stdio: "inherit" });
 
     // Run codex CLI with user text (replace this with actual user text input)
-    const userText = process.env.CODEX_USER_TEXT || "Hello from Codex CLI!";
+    const userText = ctx.text || "improve this code";
     logger.log(`Running codex CLI with user text: ${userText}`);
     execSync(`codex --approval-mode full-auto \"${userText}\"`, { stdio: "inherit" });
 
@@ -99,13 +99,13 @@ export async function codexRepository(repoUrl: string, branchName: string, insta
     
     if (!gitStatus) {
       logger.log("No changes were made to markdown files. Creating empty commit.");
-      fs.writeFileSync(path.join(tempDir, 'UWUIFY_TEST.md'), 'This is a test file created by uwuify bot');
-      execSync('git add UWUIFY_TEST.md', { stdio: 'inherit', cwd: tempDir });
-      execSync('git commit -m "uwu (test file added since no changes were found)"', { stdio: 'inherit', cwd: tempDir });
+      fs.writeFileSync(path.join(tempDir, 'DEV_TEST.md'), 'This is a test file created by uwuify bot');
+      execSync('git add DEV_TEST.md', { stdio: 'inherit', cwd: tempDir });
+      execSync('git commit -m "dev (test file added since no changes were found)"', { stdio: 'inherit', cwd: tempDir });
     } else {
       logger.log(`Changes detected: ${gitStatus.split("\n").length} files modified`);
       execSync('git add .', { stdio: 'inherit', cwd: tempDir });
-      execSync('git commit -m "uwu"', { stdio: 'inherit', cwd: tempDir });
+      execSync('git commit -m "dev"', { stdio: 'inherit', cwd: tempDir });
     }
 
     // Push the branch to the remote repository

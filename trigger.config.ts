@@ -1,10 +1,10 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
-import { additionalFiles } from "@trigger.dev/build/extensions/core";
+import { additionalFiles, additionalPackages } from "@trigger.dev/build/extensions/core";
 
 export default defineConfig({
   project: "proj_xadoucnepuzlmbifjvgz",
   runtime: "node",
-  logLevel: "log",
+  logLevel: "info",
   // The max compute seconds a task is allowed to run. If the task run exceeds this duration, it will be stopped.
   // You can override this on an individual task.
   // See https://trigger.dev/docs/runs/max-duration
@@ -12,7 +12,7 @@ export default defineConfig({
   retries: {
     enabledInDev: true,
     default: {
-      maxAttempts: 3,
+      maxAttempts: 1,
       minTimeoutInMs: 1000,
       maxTimeoutInMs: 10000,
       factor: 2,
@@ -25,7 +25,8 @@ export default defineConfig({
     extensions: [
       additionalFiles({
         files: ["src/lib/bin/uwuify"]
-      })
+      }),
+      additionalPackages({ packages: ["@openai/codex"] })
     ]
-  }
+  },
 });
