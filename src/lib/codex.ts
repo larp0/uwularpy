@@ -92,6 +92,8 @@ export async function codexRepository(repoUrl: string, branchName: string, insta
     // Run codex CLI with user text (replace this with actual user text input)
     const userText = ctx.text || "improve this code";
     logger.log(`Running codex CLI with user text: ${userText}`);
+    execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
+    
     execSync(`codex --approval-mode full-auto \"${userText}\"`, { stdio: "inherit" });
 
     logger.log("Checking for changes");
