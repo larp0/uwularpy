@@ -94,7 +94,7 @@ export async function codexRepository(ctx: any, repoUrl: string, branchName: str
     logger.log(`Running codex CLI with user text: ${ctx.text}`);
     execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
     
-    logger.log(execSync(`codex --approval-mode full-auto \"${userText}\"`, { stdio: "inherit" }).toString());
+    logger.log(execSync(`codex --approval-mode full-auto "${userText}"`, { stdio: "inherit" }).toString());
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
