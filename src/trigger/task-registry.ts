@@ -22,7 +22,7 @@ export const codexTask = task({
   machine: "large-2x",
   // Set a longer maxDuration for repository processing
   maxDuration: 600, // 20 minutes
-  run: async (payload: GitHubContext, { ctx }) => {
+  run: async (payload: GitHubContext, ctx) => {
     // Dynamically import the implementation to avoid circular dependencies
     const { runCodexTask } = await import("./codex-task");
     return await runCodexTask(payload, ctx);

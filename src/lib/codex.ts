@@ -99,7 +99,7 @@ export async function codexRepository(ctx: any, repoUrl: string, branchName: str
       const escapedUserText = userText.replace(/"/g, '\\"');
       
       // Execute codex command with output going directly to parent process
-      execSync(`codex --approval-mode full-auto "${escapedUserText}"`, { stdio: "inherit" });
+      spawnSync(`codex --approval-mode full-auto "${escapedUserText}"`);
       logger.log("Codex command executed successfully");
     } catch (error) {
       logger.error(`Error executing codex command: ${error instanceof Error ? error.message : 'Unknown error'}`);
