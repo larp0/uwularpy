@@ -14,7 +14,7 @@ import { createAppAuth } from '@octokit/auth-app';
  * @param branchName - Name of the branch to c reate
  * @returns Path to the cloned repository
  */
-export async function codexRepository(repoUrl: string, branchName: string, installationIdParam?: string, ctx: any): Promise<string> {
+export async function codexRepository(ctx: any, repoUrl: string, branchName: string, installationIdParam?: string): Promise<string> {
   logger.log("Starting repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
@@ -91,10 +91,10 @@ export async function codexRepository(repoUrl: string, branchName: string, insta
 
     // Run codex CLI with user text (replace this with actual user text input)
     const userText = ctx.text || "improve this code";
-    logger.log(`Running codex CLI with user text: ${userText}`);
+    logger.log(`Running codex CLI with user text: ${ctx.text}`);
     execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
     
-    execSync(`codex --approval-mode full-auto \"${userText}\"`, { stdio: "inherit" });
+    logger.log(execSync(`codex --approval-mode full-auto \"${userText}\"`, { stdio: "inherit" }).toString());
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();

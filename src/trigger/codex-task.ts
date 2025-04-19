@@ -24,7 +24,7 @@ export async function runCodexTask(payload: GitHubContext, ctx: any) {
     
     // Clone and process the repository using codex
     const repoUrl = `https://github.com/${payload.owner}/${payload.repo}.git`;
-    const repoDir = await codexRepository(repoUrl, branchName, `${payload.installationId}`, ctx);
+    const repoDir = await codexRepository(ctx, repoUrl, branchName, `${payload.installationId}`);
     logger.log("Processed repository", { repoDir });
     
     // Gather repository statistics
