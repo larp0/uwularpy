@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     const event = request.headers.get('x-github-event');
     
     // Only process issue_comment events
-    if (event === 'issue_comment' && body.action === 'created') {
+    if (event === 'issue_comment' && body.action === 'created' && body.comment.user.login !== 'uwularpy') {
       const comment = body.comment.body;
       const issueNumber = body.issue.number;
       const requester = body.comment.user.login;
