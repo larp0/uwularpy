@@ -1,111 +1,111 @@
-# UwUlarpy Next.js Documentation
+# UwUwawpy Nyext.js Documentation
 
-This documentation provides comprehensive information about the Next.js implementation of the UwUlarpy GitHub App webhook handler.
+Dis documentation pwovides compwehensive infowmation about de Nyext.js impwementation of de UwUwawpy GitHub App webhook handwew.
 
-## Overview
+## Ovewview
 
-UwUlarpy is a GitHub App that automatically uwuifies markdown files in repositories when mentioned in issue comments. The application has been refactored from an Express.js implementation to a modern Next.js application, providing improved maintainability, type safety with TypeScript, and a clean frontend interface.
+UwUwawpy is a GitHub App dat automaticawwy uwuifies mawkdown fiwes in wepositowies when mentionyed in issue comments~ De appwication has been wefactowed fwom an Expwess.js impwementation to a modewn Nyext.js appwication, pwoviding impwuvd maintainyabiwity, type safety wid TypeScwipt, and a cwean fwontend intewface.
 
-## Project Structure
+## Pwoject Stwuctuwe
 
 ```
-uwularpy-nextjs/
-├── src/
+uwuwawpy-nyextjs/
+├── swc/
 │   ├── app/
 │   │   ├── api/
 │   │   │   └── webhook/
-│   │   │       └── route.ts    # Webhook handler API route
-│   │   └── page.tsx            # Frontend landing page
-│   └── lib/
-│       ├── github-auth.ts      # GitHub authentication utilities
-│       └── uwuify.ts           # Uwuification utilities
-├── .env.local                  # Environment variables (create from .env.example)
-├── next.config.ts              # Next.js configuration
-└── package.json                # Project dependencies
+│   │   │       └── woute.ts    # Webhook handwew API woute
+│   │   └── page.tsx            # Fwontend wanding page
+│   └── wib/
+│       ├── gidub-aud.ts      # GitHub audentication utiwities
+│       └── uwuify.ts           # Uwuification utiwities
+├── .env.wocaw                  # Enviwonment vawiabwes (cweate fwom .env.exampwe)
+├── nyext.config.ts              # Nyext.js configuwation
+└── package.json                # Pwoject dependencies
 ```
 
-## Key Components
+## Key Componyents
 
-### Webhook Handler (src/app/api/webhook/route.ts)
+### Webhook Handwew (swc/app/api/webhook/woute.ts)
 
-The webhook handler is implemented as a Next.js API route that:
-- Receives GitHub webhook events
-- Verifies the webhook signature
-- Processes issue comment events that mention @uwularpy
-- Creates a new branch
-- Uwuifies all markdown files in the repository
-- Creates a pull request with the uwuified content
+De webhook handwew is impwemented as a Nyext.js API woute dat:
+- Weceives GitHub webhook events
+- Vewifies de webhook signyatuwe
+- Pwocesses issue comment events dat mention @uwuwawpy
+- Cweates a nyew bwanch
+- Uwuifies aww mawkdown fiwes in de wepositowy
+- Cweates a puww wequest wid de uwuified content
 
-### GitHub Authentication (src/lib/github-auth.ts)
+### GitHub Audentication (swc/wib/gidub-aud.ts)
 
-This module provides utilities for GitHub authentication:
-- `createAuthenticatedOctokit`: Creates an authenticated Octokit instance for GitHub API interactions
-- `verifyWebhookSignature`: Verifies the GitHub webhook signature
+Dis moduwe pwovides utiwities fow GitHub audentication:
+- `cweateAudenticatedOctokit`: Cweates an audenticated Octokit instance fow GitHub API intewactions
+- `vewifyWebhookSignyatuwe`: Vewifies de GitHub webhook signyatuwe
 
-### Uwuification Logic (src/lib/uwuify.ts)
+### Uwuification Wogic (swc/wib/uwuify.ts)
 
-This module provides utilities for uwuifying content:
-- `uwuifyMarkdown`: Uwuifies markdown content while preserving code blocks
-- `uwuifyRepositoryMarkdownFiles`: Processes all markdown files in a repository and uwuifies them
+Dis moduwe pwovides utiwities fow uwuifying content:
+- `uwuifyMawkdown`: Uwuifies mawkdown content whiwe pwesewving code bwocks
+- `uwuifyWepositowyMawkdownFiwes`: Pwocesses aww mawkdown fiwes in a wepositowy and uwuifies dem
 
-### Frontend Interface (src/app/page.tsx)
+### Fwontend Intewface (swc/app/page.tsx)
 
-A clean, responsive landing page that provides:
-- Information about the UwUlarpy GitHub App
-- Installation instructions
-- Usage guidelines
+A cwean, wesponsive wanding page dat pwovides:
+- Infowmation about de UwUwawpy GitHub App
+- Instawwation instwuctions
+- Usage guidewinyes
 
-## Environment Variables
+## Enviwonment Vawiabwes
 
-Create a `.env.local` file with the following variables:
+Cweate a `.env.wocaw` fiwe wid de fowwowing vawiabwes:
 
 ```
-APP_ID=your_github_app_id
-PRIVATE_KEY=your_github_app_private_key
-WEBHOOK_SECRET=your_github_webhook_secret
+APP_ID=youw_gidub_app_id
+PWIVATE_KEY=youw_gidub_app_pwivate_key
+WEBHOOK_SECWET=youw_gidub_webhook_secwet
 ```
 
-## Installation
+## Instawwation
 
-1. Clone the repository
-2. Install dependencies: `npm install`
-3. Create a `.env.local` file with the required environment variables
-4. Run the development server: `npm run dev`
+1~ Cwonye de wepositowy
+2~ Instaww dependencies: `npm instaww`
+3~ Cweate a `.env.wocaw` fiwe wid de wequiwed enviwonment vawiabwes
+4~ Wun de devewopment sewvew: `npm wun dev`
 
-## Deployment
+## Depwoyment
 
-The application can be deployed to any platform that supports Next.js applications, such as:
-- Vercel
-- Netlify
-- AWS Amplify
-- Self-hosted servers
+De appwication can be depwoyed to any pwatfowm dat suppowts Nyext.js appwications, such as:
+- Vewcew
+- Nyetwify
+- AWS Ampwify
+- Sewf-hosted sewvews
 
-## GitHub App Configuration
+## GitHub App Configuwation
 
-1. Create a GitHub App at https://github.com/settings/apps/new
-2. Set the webhook URL to your deployed application's webhook endpoint
-3. Generate a private key and note the App ID
-4. Set the required permissions:
-   - Repository contents: Read & write
-   - Issues: Read & write
-5. Subscribe to events:
+1~ Cweate a GitHub App at https://gidub.com/settings/apps/nyew
+2~ Set de webhook UWW to youw depwoyed appwication's webhook endpoint
+3~ Genyewate a pwivate key and nyote de App ID
+4~ Set de wequiwed pewmissions:
+   - Wepositowy contents: Wead & wwite
+   - Issues: Wead & wwite
+5~ Subscwibe to events:
    - Issue comment
 
 ## Usage
 
-Once the GitHub App is installed on repositories, users can:
-1. Create or open an issue in the repository
-2. Add a comment that mentions @uwularpy
-3. The bot will immediately reply with "see you, uwuing..."
-4. A new branch will be created with uwuified markdown files
-5. A pull request will be created for review and merging
+Once de GitHub App is instawwed on wepositowies, usews can:
+1~ Cweate ow open an issue in de wepositowy
+2~ Add a comment dat mentions @uwuwawpy
+3~ De bot wiww immediatewy wepwy wid "see you, uwuing..."
+4~ A nyew bwanch wiww be cweated wid uwuified mawkdown fiwes
+5~ A puww wequest wiww be cweated fow weview and mewging
 
-## Differences from Express Implementation
+## Diffewences fwom Expwess Impwementation
 
-The Next.js implementation offers several improvements over the original Express implementation:
-- TypeScript support for improved type safety
-- Modular code structure with separation of concerns
-- Built-in API routes without need for separate server setup
-- Modern frontend with Tailwind CSS
-- Improved error handling and logging
-- Better developer experience with hot reloading
+De Nyext.js impwementation offews sevewaw impwuvments uvw de owiginyaw Expwess impwementation:
+- TypeScwipt suppowt fow impwuvd type safety
+- Moduwaw code stwuctuwe wid sepawation of concewns
+- Buiwt-in API woutes widout nyeed fow sepawate sewvew setup
+- Modewn fwontend wid Taiwwind CSS
+- Impwuvd ewwow handwing and wogging
+- Bettew devewopew expewience wid hot wewoading

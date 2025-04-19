@@ -1,28 +1,28 @@
-# GitHub Authentication Configuration for Next.js
+# GitHub Audentication Configuwation fow Nyext.js
 
-This file contains the implementation of GitHub authentication for the Next.js version of the uwularpy webhook handler.
+Dis fiwe contains de impwementation of GitHub audentication fow de Nyext.js vewsion of de uwuwawpy webhook handwew.
 
-## Environment Variables
+## Enviwonment Vawiabwes
 
-Create a `.env.local` file in the root of your Next.js project with the following variables:
+Cweate a `.env.wocaw` fiwe in de woot of youw Nyext.js pwoject wid de fowwowing vawiabwes:
 
 ```
-APP_ID=your_github_app_id
-PRIVATE_KEY=your_github_app_private_key
-WEBHOOK_SECRET=your_github_webhook_secret
+APP_ID=youw_gidub_app_id
+PWIVATE_KEY=youw_gidub_app_pwivate_key
+WEBHOOK_SECWET=youw_gidub_webhook_secwet
 ```
 
-## Authentication Implementation
+## Audentication Impwementation
 
-The GitHub authentication is implemented in the webhook route handler using the `@octokit/auth-app` package. The authentication flow works as follows:
+De GitHub audentication is impwemented in de webhook woute handwew using de `@octokit/aud-app` package~ De audentication fwow wowks as fowwows:
 
-1. The webhook receives a request from GitHub
-2. The request signature is verified using the webhook secret
-3. For authenticated actions (like creating branches and PRs), an Octokit instance is created with the GitHub App credentials
-4. The Octokit instance uses the installation ID from the webhook payload to authenticate as the GitHub App installation
+1~ De webhook weceives a wequest fwom GitHub
+2~ De wequest signyatuwe is vewified using de webhook secwet
+3~ Fow audenticated actions (wike cweating bwanches and PWs), an Octokit instance is cweated wid de GitHub App cwedentiaws
+4~ De Octokit instance uses de instawwation ID fwom de webhook paywoad to audenticate as de GitHub App instawwation
 
-## Security Considerations
+## Secuwity Considewations
 
-- The private key should be kept secure and never committed to the repository
-- Environment variables should be properly set in both development and production environments
-- The webhook secret should be randomly generated and kept secure
+- De pwivate key shouwd be kept secuwe and nyevew committed to de wepositowy
+- Enviwonment vawiabwes shouwd be pwopewwy set in bod devewopment and pwoduction enviwonments
+- De webhook secwet shouwd be wandomwy genyewated and kept secuwe
