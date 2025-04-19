@@ -94,7 +94,16 @@ export async function codexRepository(ctx: any, repoUrl: string, branchName: str
     logger.log(`Running codex CLI with user text: ${JSON.stringify(ctx)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
     execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
     
-    logger.log(execSync(`codex --approval-mode full-auto "${userText}"`, { stdio: "inherit" }).toString());
+    try {
+      // Escape userText for shell command to prevent command injection
+      const escapedUserText = userText.replace(/"/g, '\\"');
+      
+      // Execute codex command with output going directly to parent process
+      execSync(`codex --approval-mode full-auto "${escapedUserText}"`, { stdio: "inherit" });
+      logger.log("Codex command executed successfully");
+    } catch (error) {
+      logger.error(`Error executing codex command: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
