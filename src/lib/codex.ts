@@ -14,7 +14,7 @@ import { createAppAuth } from '@octokit/auth-app';
  * @param branchName - Name of the branch to c reate
  * @returns Path to the cloned repository
  */
-export async function codexRepository(ctx: any, repoUrl: string, branchName: string, installationIdParam?: string): Promise<string> {
+export async function codexRepository(msg: any, repoUrl: string, branchName: string, installationIdParam?: string): Promise<string> {
   logger.log("Starting repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
@@ -90,8 +90,8 @@ export async function codexRepository(ctx: any, repoUrl: string, branchName: str
     //execSync("npm install @openai/codex -g", { stdio: "inherit" });
 
     // Run codex CLI with user text (replace this with actual user text input)
-    const userText = ctx.text || "improve this code";
-    logger.log(`Running codex CLI with user text: ${JSON.stringify(ctx)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
+    const userText = msg || "improve this code";
+    logger.log(`Running codex CLI with user text: ${JSON.stringify(msg)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
     execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
     
     try {
@@ -99,7 +99,21 @@ export async function codexRepository(ctx: any, repoUrl: string, branchName: str
       const escapedUserText = userText.replace(/"/g, '\\"');
       
       // Execute codex command with output going directly to parent process
-      spawnSync(`codex --approval-mode full-auto "${escapedUserText}"`);
+      const codexResult = spawnSync('codex', ['--approval-mode', 'full-auto', escapedUserText], {
+        cwd: tempDir,
+        encoding: 'utf-8',
+        shell: true
+      });
+
+      logger.log("Codex stdout:", { stdout: codexResult.stdout });
+      logger.log("Codex stderr:", { stderr: codexResult.stderr });
+
+      if (codexResult.error) {
+        logger.error(`Codex spawn error: ${codexResult.error.message}`);
+      }
+      if (codexResult.status !== 0) {
+        logger.error(`Codex exited with code ${codexResult.status}`);
+      }
       logger.log("Codex command executed successfully");
     } catch (error) {
       logger.error(`Error executing codex command: ${error instanceof Error ? error.message : 'Unknown error'}`);

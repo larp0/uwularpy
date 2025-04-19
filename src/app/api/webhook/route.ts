@@ -46,11 +46,12 @@ export async function POST(request: NextRequest) {
             installationId: body.installation.id,
             requestTimestamp: new Date().toISOString(),
             requestId: generateRequestId(),
+            message: textAfterMention,
           };
 
           if (textAfterMention) {
             // If there is text after the mention, trigger the Codex task
-            const runHandle = await triggerTask("codex-task", { ...context, text: textAfterMention });
+            const runHandle = await triggerTask("codex-task", { ...context });
             console.log(`Triggered codex-task, run ID: ${runHandle.id}`);
             return NextResponse.json({ 
               message: 'Codex task triggered', 

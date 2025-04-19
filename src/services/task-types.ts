@@ -11,6 +11,7 @@ export interface GitHubContext {
   installationId: number;
   requestTimestamp?: string;
   requestId?: string;
+  message?: string;
 }
 
 /**
