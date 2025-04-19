@@ -28,13 +28,13 @@ export async function POST(request: NextRequest) {
       const repo = body.repository.name;
       const owner = body.repository.owner.login;
       
-      // Check if the comment mentions @uwularpy
-      if (comment.includes('@uwularpy')) {
+      // Check if the comment mentions @uwularpy or @l
+      if (comment.includes('@uwularpy') || comment.includes('@l')) {
         console.log(`Mention detected in issue #${issueNumber} by ${requester}`);
 
         // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
-        const match = comment.match(/@uwularpy\s+([\s\S]+)/i);
-        const textAfterMention = match ? match[1].trim() : '';
+        const match = comment.match(/@(uwularpy|l)\s+([\s\S]+)/i);
+        const textAfterMention = match ? match[2].trim() : '';
 
         try {
           // Prepare the context for the task
@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
 
           if (textAfterMention) {
             // If there is text after the mention, trigger the Codex task
-            const runHandle = await triggerTask("codex-reply", { ...context, text: textAfterMention });
-            console.log(`Triggered codex-reply task, run ID: ${runHandle.id}`);
+            const runHandle = await triggerTask("codex-task", { ...context, text: textAfterMention });
+            console.log(`Triggered codex-task, run ID: ${runHandle.id}`);
             return NextResponse.json({ 
               message: 'Codex task triggered', 
               runId: runHandle.id 
