@@ -94,8 +94,8 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
     // Always explicitly set Git identity for this repository
     // This is crucial for the git commit to work
     logger.log("Explicitly setting Git identity");
-    execSync('git config user.email "uwuify-bot@example.com"', { stdio: 'inherit', cwd: tempDir });
-    execSync('git config user.name "UwUify Bot"', { stdio: 'inherit', cwd: tempDir });
+    execSync('git config user.email "bot@uwularpy.dev"', { stdio: 'inherit', cwd: tempDir });
+    execSync('git config user.name "uwularpy"', { stdio: 'inherit', cwd: tempDir });
 
     // Display current git config to debug
     logger.log("Verifying Git identity configuration:");

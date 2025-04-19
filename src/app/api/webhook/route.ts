@@ -31,7 +31,11 @@ export async function POST(request: NextRequest) {
       // Check if the comment mentions @uwularpy
       if (comment.includes('@uwularpy')) {
         console.log(`Mention detected in issue #${issueNumber} by ${requester}`);
-        
+
+        // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
+        const match = comment.match(/@uwularpy\s+([\s\S]+)/i);
+        const textAfterMention = match ? match[1].trim() : '';
+
         try {
           // Prepare the context for the task
           const context: GitHubContext = {
@@ -43,21 +47,28 @@ export async function POST(request: NextRequest) {
             requestTimestamp: new Date().toISOString(),
             requestId: generateRequestId(),
           };
-          
-          // Trigger the uwuify repository task using trigger.dev v3 API
-          const runHandle = await triggerTask("uwuify-repository", context);
-          
-          console.log(`Triggered uwuify repository task, run ID: ${runHandle.id}`);
-          
-          // Return success response immediately after triggering the task
-          return NextResponse.json({ 
-            message: 'Webhook processed successfully', 
-            runId: runHandle.id 
-          }, { status: 200 });
+
+          if (textAfterMention) {
+            // If there is text after the mention, trigger the Codex task
+            const runHandle = await triggerTask("codex-reply", { ...context, text: textAfterMention });
+            console.log(`Triggered codex-reply task, run ID: ${runHandle.id}`);
+            return NextResponse.json({ 
+              message: 'Codex task triggered', 
+              runId: runHandle.id 
+            }, { status: 200 });
+          } else {
+            // Otherwise, trigger the uwuify repository task
+            const runHandle = await triggerTask("uwuify-repository", context);
+            console.log(`Triggered uwuify repository task, run ID: ${runHandle.id}`);
+            return NextResponse.json({ 
+              message: 'Webhook processed successfully', 
+              runId: runHandle.id 
+            }, { status: 200 });
+          }
         } catch (error) {
-          console.error('Error triggering uwuify repository task:', error);
+          console.error('Error triggering task:', error);
           return NextResponse.json({ 
-            error: 'Error triggering uwuification task',
+            error: 'Error triggering task',
             message: error instanceof Error ? error.message : 'Unknown error'
           }, { status: 500 });
         }

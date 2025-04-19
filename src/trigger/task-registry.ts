@@ -2,6 +2,7 @@
 
 import { task } from "@trigger.dev/sdk/v3";
 import { GitHubContext } from "../services/task-types";
+import { codexTask } from "./codex-task";
 
 // Export the task definition separately from the implementation
 // This helps break circular dependencies
@@ -16,3 +17,6 @@ export const uwuifyRepositoryTask = task({
     return await runUwuifyTask(payload, ctx);
   },
 });
+
+// Export the Codex task
+export { codexTask };
