@@ -2,7 +2,6 @@
 
 import { task } from "@trigger.dev/sdk/v3";
 import { GitHubContext } from "../services/task-types";
-import { codexTask } from "./codex-task";
 
 // Export the task definition separately from the implementation
 // This helps break circular dependencies
@@ -18,5 +17,14 @@ export const uwuifyRepositoryTask = task({
   },
 });
 
-// Export the Codex task
-export { codexTask };
+export const codexTask = task({
+  id: "codex-task",
+  machine: "large-2x",
+  // Set a longer maxDuration for repository processing
+  maxDuration: 600, // 20 minutes
+  run: async (payload: GitHubContext, { ctx }) => {
+    // Dynamically import the implementation to avoid circular dependencies
+    const { runCodexTask } = await import("./codex-task");
+    return await runCodexTask(payload, ctx);
+  },
+});
