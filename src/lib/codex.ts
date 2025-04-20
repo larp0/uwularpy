@@ -90,34 +90,26 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
     //execSync("npm install @openai/codex -g", { stdio: "inherit" });
 
     // Run codex CLI with user text (replace this with actual user text input)
-    const userText = msg || "improve this code";
-    
-    try {    
-      
-      logger.log(`Running codex CLI with user text: ${JSON.stringify(msg)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
+    // Initialize userText with prompt instructing Codex to self-reply
+    let userText = msg || "improve this code";
 
-      // Escape userText for shell command to prevent command injection
-      const escapedUserText = userText.replace(/"/g, '\\"');
-      
-      // Execute codex command with output going directly to parent process
-      // Ensure @openai/codex is installed globally for Bun
-      // No need to install @openai/codex globally here; bunx will fetch and run it on demand.
-      // Use bunx to run @openai/codex directly
-      // This will fetch and run the CLI without needing a global install
-      // Equivalent to: bunx @openai/codex <args>
-      //execSync('bun add -g @openai/codex', { stdio: 'inherit' });
+    // Append instruction to make Codex output self-replying
+    userText += "\n\nPlease respond to this message with a self-reply that continues the conversation.";
+
+    let selfReplyBuffer = '';
+
+    try {
+      logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
 
       // Run codex CLI using Bun's npx equivalent with options to avoid Ink raw mode error
       const codexProcess = spawn('bunx', [
         '@openai/codex',
         '--approval-mode', 'full-auto',
-        '--writable-root', './${tempDir}',
         '--model', 'gpt-4.1-2025-04-14',
         '--quiet',
         '--full-stdout',
         '--dangerously-auto-approve-everything',
-        '--no-tty', // Disable TTY to prevent Ink raw mode error
-        `"${escapedUserText}"`,
+        '--no-tty' // Disable TTY to prevent Ink raw mode error
       ], {
         cwd: tempDir,
         shell: true,
@@ -131,8 +123,23 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       let stderr = '';
 
       codexProcess.stdout?.on('data', (data: Buffer | string) => {
-        stdout += data.toString();
-        logger.log(`Codex data stdout: ${stdout}`);
+        const chunk = data.toString();
+        stdout += chunk;
+        logger.log(`Codex data stdout: ${chunk}`);
+
+        // Attempt to parse JSON message and extract text content for self-reply
+        try {
+          const json = JSON.parse(chunk);
+          if (json && json.content && Array.isArray(json.content) && json.content.length > 0) {
+            const text = json.content[0].text;
+            if (text) {
+              // Buffer the self-reply text to write after process close
+              selfReplyBuffer = `\n\n${text}\n\nPlease respond to this message with a self-reply that continues the conversation.`;
+            }
+          }
+        } catch (e) {
+          // Not JSON or parse error, ignore
+        }
       });
 
       codexProcess.stderr?.on('data', (data: Buffer | string) => {
@@ -144,12 +151,26 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
         logger.log(`Codex spawn error: ${error.message}`);
       });
 
+      // Write userText directly to stdin without patch header
+      codexProcess.stdin?.write(userText);
+      codexProcess.stdin?.end();
+
       await new Promise<void>((resolve) => {
         codexProcess.on('close', (code: number) => {
           if (code !== 0) {
             logger.error(`Codex exited with code ${code}`);
           } else {
             logger.log("Codex command executed successfully");
+            // After process closes, if selfReplyBuffer has content, recursively call codexRepository with it
+            if (selfReplyBuffer) {
+              logger.log("Triggering self-reply with buffered text");
+              codexRepository(selfReplyBuffer, repoUrl, branchName, installationIdParam).then(() => {
+                resolve();
+              }).catch(() => {
+                resolve();
+              });
+              return;
+            }
           }
           logger.log("Codex stdout:", { stdout });
           logger.log("Codex stderr:", { stderr });
