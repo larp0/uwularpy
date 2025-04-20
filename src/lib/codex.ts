@@ -109,7 +109,7 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       //execSync('bun add -g @openai/codex', { stdio: 'inherit' });
 
       // Run codex CLI using Bun's npx equivalent, passing userText via stdin
-      const codexProcess = spawn('bunx', ['@openai/codex', '--approval-mode', 'full-auto', '-m', 'gpt-4.1-2025-04-14', '-q', '--full-stdout', '--dangerously-auto-approve-everything', `\"${userText}\"`], {
+      const codexProcess = spawn('bunx', ['@openai/codex', '--full-context', '--approval-mode', 'full-auto', '-m', 'gpt-4.1-2025-04-14', '-q', '--full-stdout', '--dangerously-auto-approve-everything', `\"${userText}\"`], {
         cwd: tempDir,
         shell: true,
         env: {
