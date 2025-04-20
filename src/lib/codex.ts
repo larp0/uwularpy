@@ -95,14 +95,17 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
   while (true) {
     logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)}`);
 
-    // Spawn codex CLI process with user prompt as last argument (no --prompt flag)
+    // Write userText to a temporary file and pass the file path to codex CLI to avoid shell parsing issues
+    const tempPromptFile = path.join(tempDir, 'prompt.txt');
+    fs.writeFileSync(tempPromptFile, userText, 'utf-8');
+
     const codexProcess = spawn('bunx', [
       '@openai/codex',
       '--approval-mode', 'full-auto',
       '--model', 'gpt-4.1-2025-04-14',
       '--quiet',
       '--no-tty', // Disable TTY to prevent Ink raw mode error
-      userText
+      tempPromptFile
     ], {
       cwd: tempDir,
       shell: true,
