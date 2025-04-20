@@ -1,6 +1,3 @@
-// src/lib/binary-uwuify.ts
-// Optimized with GitHub App authentication: Bash-based markdown processing with parallel execution
-
 import { execSync, spawnSync, spawn, exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -11,18 +8,17 @@ import { createAppAuth } from '@octokit/auth-app';
 /** 
  * Process a repository with the uwuify binary
  * @param repoUrl - URL of the repository to clone
- * @param branchName - Name of the branch to c reate
+ * @param branchName - Name of the branch to create
  * @returns Path to the cloned repository
  */
 export async function codexRepository(msg: any, repoUrl: string, branchName: string, installationIdParam?: string): Promise<string> {
-  logger.log("Starting repository uwuification", { repoUrl, branchName });
+  logger.log("Starting autonomous repository uwuification", { repoUrl, branchName });
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'repo-'));
   logger.log(`Created temporary directory at: ${tempDir}`);
 
   const githubAppId = process.env.GITHUB_APP_ID;
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const installationId = installationIdParam;
 
   // Parse repository owner and name from URL
@@ -85,101 +81,143 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
     logger.log("Verifying Git identity configuration:");
     execSync('git config --list | grep user.', { stdio: 'inherit', cwd: tempDir });
 
-    // Install codex globally
-    logger.log("Installing @openai/codex globally");
-    //execSync("npm install @openai/codex -g", { stdio: "inherit" });
-
     // Run codex CLI with user text (replace this with actual user text input)
     // Initialize userText with prompt instructing Codex to self-reply
     let userText = msg || "improve this code";
 
-    // Append instruction to make Codex output self-replying
-    userText += "\n\nPlease respond to this message with a self-reply that continues the conversation.";
+      // Append instruction to make Codex output self-replying
+      userText += "\n\nPlease respond to this message with a detailed, step-by-step self-reply that continues the conversation, " +
+                  "including any necessary clarifications, next actions, or questions to ensure full autonomous completion.";
 
-    let selfReplyBuffer = '';
+      let selfReplyBuffer = '';
+
+  // Run codex CLI and reply to its questions via OpenAI API until no new self-reply is generated
+  while (true) {
+    logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)}`);
+
+    // Spawn codex CLI process
+    const codexProcess = spawn('bunx', [
+      '@openai/codex',
+      '--approval-mode', 'full-auto',
+      '--model', 'gpt-4.1-2025-04-14',
+      '--quiet',
+      '--full-stdout',
+      '--dangerously-auto-approve-everything',
+      '--no-tty' // Disable TTY to prevent Ink raw mode error
+    ], {
+      cwd: tempDir,
+      shell: true,
+      env: {
+        ...process.env,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY || ''
+      }
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let codexQuestion = '';
+
+    codexProcess.stdout?.on('data', (data: Buffer | string) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      logger.log(`Codex data stdout: ${chunk}`);
+
+      try {
+        const json = JSON.parse(chunk);
+        if (json && json.content && Array.isArray(json.content) && json.content.length > 0) {
+          const text = json.content[0].text;
+          if (text) {
+            codexQuestion = text;
+          }
+        }
+      } catch (e) {
+        // Ignore JSON parse errors
+      }
+    });
+
+    codexProcess.stderr?.on('data', (data: Buffer | string) => {
+      stderr += data.toString();
+      logger.log(`Codex data stderr: ${stderr}`);
+    });
+
+    const exitCode = await new Promise<number>((resolve) => {
+      codexProcess.on('close', (code: number) => {
+        resolve(code);
+      });
+    });
+
+    if (exitCode !== 0) {
+      logger.error(`Codex exited with code ${exitCode}`);
+      break;
+    }
+
+    logger.log("Codex command executed successfully");
+    logger.log("Codex stdout:", { stdout });
+    logger.log("Codex stderr:", { stderr });
+
+    if (!codexQuestion || codexQuestion.trim() === '') {
+      logger.log("No question from Codex, ending recursion");
+      break;
+    }
+
+    // Use OpenAI API to generate reply to Codex question
+    logger.log(`Replying to Codex question via OpenAI API: ${codexQuestion}`);
+
+    const openai = await import('openai');
+    const client = new openai.OpenAI();
+
+    let newSelfReply = '';
 
     try {
-      logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
-
-      // Run codex CLI using Bun's npx equivalent with options to avoid Ink raw mode error
-      const codexProcess = spawn('bunx', [
-        '@openai/codex',
-        '--approval-mode', 'full-auto',
-        '--model', 'gpt-4.1-2025-04-14',
-        '--quiet',
-        '--full-stdout',
-        '--dangerously-auto-approve-everything',
-        '--no-tty' // Disable TTY to prevent Ink raw mode error
-      ], {
-        cwd: tempDir,
-        shell: true,
-        env: {
-          ...process.env,
-          OPENAI_API_KEY: process.env.OPENAI_API_KEY || ''
-        }
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      codexProcess.stdout?.on('data', (data: Buffer | string) => {
-        const chunk = data.toString();
-        stdout += chunk;
-        logger.log(`Codex data stdout: ${chunk}`);
-
-        // Attempt to parse JSON message and extract text content for self-reply
-        try {
-          const json = JSON.parse(chunk);
-          if (json && json.content && Array.isArray(json.content) && json.content.length > 0) {
-            const text = json.content[0].text;
-            if (text) {
-              // Buffer the self-reply text to write after process close
-              selfReplyBuffer = `\n\n${text}\n\nPlease respond to this message with a self-reply that continues the conversation.`;
-            }
+      const response = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an autonomous agent that replies to Codex questions with detailed, step-by-step answers including clarifications, next actions, or questions to ensure full autonomous completion.'
+          },
+          {
+            role: 'user',
+            content: codexQuestion
           }
-        } catch (e) {
-          // Not JSON or parse error, ignore
-        }
+        ],
+        max_tokens: 1000,
+        temperature: 0.7,
+        top_p: 1,
+        frequency_penalty: 0,
+        presence_penalty: 0
       });
 
-      codexProcess.stderr?.on('data', (data: Buffer | string) => {
-        stderr += data.toString();
-        logger.log(`Codex data stderr: ${stderr}`);
-      });
-
-      codexProcess.on('error', (error: Error) => {
-        logger.log(`Codex spawn error: ${error.message}`);
-      });
-
-      // Write userText directly to stdin without patch header
-      codexProcess.stdin?.write(userText);
-      codexProcess.stdin?.end();
-
-      await new Promise<void>((resolve) => {
-        codexProcess.on('close', (code: number) => {
-          if (code !== 0) {
-            logger.error(`Codex exited with code ${code}`);
-          } else {
-            logger.log("Codex command executed successfully");
-            // After process closes, if selfReplyBuffer has content, recursively call codexRepository with it
-            if (selfReplyBuffer) {
-              logger.log("Triggering self-reply with buffered text");
-              codexRepository(selfReplyBuffer, repoUrl, branchName, installationIdParam).then(() => {
-                resolve();
-              }).catch(() => {
-                resolve();
-              });
-              return;
-            }
-          }
-          logger.log("Codex stdout:", { stdout });
-          logger.log("Codex stderr:", { stderr });
-          resolve();
-        });
-      });
+      if (response.choices && response.choices.length > 0) {
+        newSelfReply = response.choices[0].message?.content || '';
+      }
     } catch (error) {
-      logger.error(`Error executing codex command: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error(`OpenAI API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      break;
     }
+
+    if (!newSelfReply || newSelfReply.trim() === '') {
+      logger.log("No reply generated for Codex question, ending recursion");
+      break;
+    }
+
+    if (newSelfReply === userText) {
+      logger.log("Reply same as previous input, ending recursion");
+      break;
+    }
+
+    // Safety check: limit recursion depth to prevent infinite loops
+    if (!(globalThis as any).recursionDepth) {
+      (globalThis as any).recursionDepth = 0;
+    }
+    (globalThis as any).recursionDepth++;
+    if ((globalThis as any).recursionDepth > 10) {
+      logger.warn("Recursion depth limit reached, ending recursion");
+      break;
+    }
+
+    userText = newSelfReply;
+  }
 
     logger.log("Checking for changes");
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
