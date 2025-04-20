@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "cli": "ts-node src/lib/codexCli.ts"
+    "cli": "ts-node --esm src/lib/codexCli.ts"
   },
   "dependencies": {
     "@octokit/auth-app": "^4.0.9",
