@@ -102,7 +102,7 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       '--model', 'gpt-4.1-2025-04-14',
       '--quiet',
       '--no-tty', // Disable TTY to prevent Ink raw mode error
-      `"${userText}"`
+      userText
     ], {
       cwd: tempDir,
       shell: true,
@@ -205,27 +205,31 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       break;
     }
 
-    // Parse and apply changes from Codex reply to the repository
+    // Parse and apply changes from Codex reply to the repository only if a specific tool call is detected
     try {
-      // Expecting Codex to output changes in a structured JSON format:
-      // { "changes": [ { "file": "path/to/file", "content": "new file content" }, ... ] }
-      const changesObj = JSON.parse(newSelfReply);
-      if (!changesObj.changes || !Array.isArray(changesObj.changes)) {
-        logger.warn("No 'changes' array found in Codex reply JSON, skipping apply");
-      } else {
-        for (const change of changesObj.changes) {
-          if (change.file && typeof change.content === 'string') {
-            const filePath = path.join(tempDir, change.file);
-            fs.mkdirSync(path.dirname(filePath), { recursive: true });
-            fs.writeFileSync(filePath, change.content, 'utf-8');
-            logger.log(`Applied change to file: ${change.file}`);
-          } else {
-            logger.warn(`Invalid change entry: ${JSON.stringify(change)}`);
+      if (newSelfReply.includes('"tool_call"') || newSelfReply.includes('"function_call"')) {
+        // Expecting Codex to output changes in a structured JSON format:
+        // { "changes": [ { "file": "path/to/file", "content": "new file content" }, ... ] }
+        const changesObj = JSON.parse(newSelfReply);
+        if (!changesObj.changes || !Array.isArray(changesObj.changes)) {
+          logger.warn("No 'changes' array found in Codex reply JSON, skipping apply");
+        } else {
+          for (const change of changesObj.changes) {
+            if (change.file && typeof change.content === 'string') {
+              const filePath = path.join(tempDir, change.file);
+              fs.mkdirSync(path.dirname(filePath), { recursive: true });
+              fs.writeFileSync(filePath, change.content, 'utf-8');
+              logger.log(`Applied change to file: ${change.file}`);
+            } else {
+              logger.warn(`Invalid change entry: ${JSON.stringify(change)}`);
+            }
           }
+          execSync('git add .', { stdio: 'inherit', cwd: tempDir });
+          execSync('git commit -m "Apply changes from Codex reply"', { stdio: 'inherit', cwd: tempDir });
+          logger.log("Applied all changes from Codex reply and committed");
         }
-        execSync('git add .', { stdio: 'inherit', cwd: tempDir });
-        execSync('git commit -m "Apply changes from Codex reply"', { stdio: 'inherit', cwd: tempDir });
-        logger.log("Applied all changes from Codex reply and committed");
+      } else {
+        logger.log("No tool call detected in Codex reply, skipping apply");
       }
     } catch (applyError) {
       logger.error(`Error applying changes from Codex reply: ${applyError instanceof Error ? applyError.message : 'Unknown error'}`);
@@ -245,13 +249,19 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
     userText = newSelfReply;
   }
 
+    // Reset recursion depth for future calls
+    if ((globalThis as any).recursionDepth) {
+      (globalThis as any).recursionDepth = 0;
+    }
+
     logger.log("Checking for changes");
-    const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
+    const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).trim();
     
     if (!gitStatus) {
       logger.log("No changes were made to markdown files. Creating empty commit.");
       fs.writeFileSync(path.join(tempDir, 'DEV_TEST.md'), 'This is a test file created by uwuify bot');
       execSync('git add DEV_TEST.md', { stdio: 'inherit', cwd: tempDir });
+      execSync('git add .', { stdio: 'inherit', cwd: tempDir });
       execSync('git commit -m "dev (test file added since no changes were found)"', { stdio: 'inherit', cwd: tempDir });
     } else {
       logger.log(`Changes detected: ${gitStatus.split("\n").length} files modified`);
