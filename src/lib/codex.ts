@@ -112,7 +112,7 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       const codexProcess = spawn('bunx', [
         '@openai/codex',
         '--approval-mode', 'full-auto',
-        '--writable-root', '/',
+        '--writable-root', './',
         '--model', 'gpt-4.1-2025-04-14',
         '--quiet',
         '--full-stdout',
