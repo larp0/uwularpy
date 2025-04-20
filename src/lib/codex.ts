@@ -71,18 +71,53 @@ export async function codexRepository(
       // Run Codex CLI via execSync, passing prompt via stdin and capturing stdout
       let stdoutData = "";
       try {
+        // Ensure the input is properly formatted and has the right encoding
+        logger.log("Running Codex CLI with JSON mode", { inputLength: userText.length });
+        
+        // Create a temporary file with the prompt content
+        const promptFilePath = path.join(tempDir, "prompt.txt");
+        fs.writeFileSync(promptFilePath, userText, "utf-8");
+        
+        // Use --json mode which doesn't require raw stdin and read from file
         stdoutData = execSync(
-          `bunx @openai/codex --approval-mode full-auto`,
+          `bunx @openai/codex --json --approval-mode full-auto --file ${promptFilePath}`,
           {
             cwd: tempDir,
-            env: { ...process.env, OPENAI_API_KEY: process.env.OPENAI_API_KEY },
-            input: userText,
-            encoding: "utf-8"
+            env: { 
+              ...process.env, 
+              OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+              FORCE_COLOR: "0",  // Disable color to avoid TTY-related issues
+              CI: "true"         // Signal that we're in a CI-like environment
+            },
+            encoding: "utf-8",
+            maxBuffer: 10 * 1024 * 1024 // Increase buffer size to 10MB
           }
         ).trim();
+        
+        // Clean up the temporary file
+        try {
+          fs.unlinkSync(promptFilePath);
+        } catch (e) {
+          logger.warn("Failed to clean up prompt file", { path: promptFilePath });
+        }
+        
+        // Log the output for debugging
+        logger.log("Codex CLI output received", { 
+          stdoutLength: stdoutData.length,
+          stdoutPreview: stdoutData.substring(0, 100) 
+        });
       } catch (e) {
-        logger.error("Codex CLI invocation failed", { error: (e as Error).message, iteration });
-        if (iteration > 1) {
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        logger.error("Codex CLI invocation failed", { 
+          error: errorMsg,
+          iteration,
+          promptLength: userText.length
+        });
+        
+        // Throw an error on the first iteration, but continue after that
+        if (iteration === 1) {
+          throw new Error(`Codex CLI failed to process input: ${errorMsg}`);
+        } else {
           break; // exit loop after at least one iteration
         }
       }
