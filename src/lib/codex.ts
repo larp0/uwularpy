@@ -24,119 +24,132 @@ export async function codexRepository(
   branchName: string,
   installationId?: string
 ): Promise<string> {
-  logger.log("codexRepository start", { repoUrl, branchName });
+  try {
+    logger.log("codexRepository start", { repoUrl, branchName });
 
-  // Create temporary workspace
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "repo-"));
-  logger.log("created temp dir", { tempDir });
+    // Create temporary workspace
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "repo-"));
+    logger.log("created temp dir", { tempDir });
 
-  // Prepare authenticated URL if GitHub App creds are provided
-  let cloneUrl = repoUrl;
-  if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY && installationId) {
-    try {
-      const auth = createAppAuth({
-        appId: parseInt(process.env.GITHUB_APP_ID, 10),
-        privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      });
-      const installation = await auth({
-        type: "installation",
-        installationId: parseInt(installationId, 10),
-      });
-      const originHost = repoUrl.replace(/^https?:\/\//, "");
-      cloneUrl = `https://x-access-token:${installation.token}@${originHost}`;
-      logger.log("using authenticated GitHub URL");
-    } catch (err) {
-      logger.warn("GitHub authentication failed, using original URL", { error: (err as Error).message });
-    }
-  }
-
-  // Clone the repository and checkout branch
-  execSync(`git clone ${cloneUrl} ${tempDir}`, { stdio: "inherit" });
-  execSync(`git checkout -b ${branchName}`, { cwd: tempDir, stdio: "inherit" });
-
-  // Set Git identity
-  execSync('git config user.email "bot@uwularpy.dev"', { cwd: tempDir, stdio: "inherit" });
-  execSync('git config user.name "uwularpy"', { cwd: tempDir, stdio: "inherit" });
-
-  // Self-ask flow: repeatedly call Codex CLI until no new reply is generated.
-  let userText = prompt + "\n\nPlease respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
-  let newSelfReply = "";
-  let iteration = 0;
-
-  while (true) {
-    iteration++;
-    logger.log("Running Codex CLI self-ask iteration", { iteration, promptLength: userText.length });
-
-    // Run Codex CLI via execSync, passing prompt to stdin and capturing stdout
-    let stdoutData = "";
-    try {
-      stdoutData = execSync(
-        `bunx @openai/codex --approval-mode full-auto --quiet`,
-        {
-          cwd: tempDir,
-          env: { ...process.env, OPENAI_API_KEY: process.env.OPENAI_API_KEY },
-          input: userText,
-          encoding: "utf-8"
-        }
-      ).trim();
-    } catch (e) {
-      logger.error("Codex CLI invocation failed", { error: (e as Error).message, iteration });
-      if (iteration > 1) {
-        break; // exit loop after at least one iteration
+    // Prepare authenticated URL if GitHub App creds are provided
+    let cloneUrl = repoUrl;
+    if (process.env.GITHUB_APP_ID && process.env.GITHUB_PRIVATE_KEY && installationId) {
+      try {
+        const auth = createAppAuth({
+          appId: parseInt(process.env.GITHUB_APP_ID, 10),
+          privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        });
+        const installation = await auth({
+          type: "installation",
+          installationId: parseInt(installationId, 10),
+        });
+        const originHost = repoUrl.replace(/^https?:\/\//, "");
+        cloneUrl = `https://x-access-token:${installation.token}@${originHost}`;
+        logger.log("using authenticated GitHub URL");
+      } catch (err) {
+        logger.warn("GitHub authentication failed, using original URL", { error: (err as Error).message });
       }
     }
 
-    // Attempt to parse JSON output (assuming quiet mode might output JSON)
-    try {
-      const parsed = JSON.parse(stdoutData);
-      if (parsed && parsed.content && Array.isArray(parsed.content) && parsed.content.length > 0) {
-        newSelfReply = parsed.content[0].text.trim();
-      } else {
+    // Clone the repository and checkout branch
+    execSync(`git clone ${cloneUrl} ${tempDir}`, { stdio: "inherit" });
+    execSync(`git checkout -b ${branchName}`, { cwd: tempDir, stdio: "inherit" });
+
+    // Set Git identity
+    execSync('git config user.email "bot@uwularpy.dev"', { cwd: tempDir, stdio: "inherit" });
+    execSync('git config user.name "uwularpy"', { cwd: tempDir, stdio: "inherit" });
+
+    // Self-ask flow: repeatedly call Codex CLI until no new reply is generated.
+    let userText = prompt + "\n\nPlease respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
+    let newSelfReply = "";
+    let iteration = 0;
+
+    while (true) {
+      iteration++;
+      logger.log("Running Codex CLI self-ask iteration", { iteration, promptLength: userText.length });
+
+      // Run Codex CLI via execSync, passing prompt to stdin and capturing stdout
+      let stdoutData = "";
+      try {
+        stdoutData = execSync(
+          `bunx @openai/codex --approval-mode full-auto --quiet`,
+          {
+            cwd: tempDir,
+            env: { ...process.env, OPENAI_API_KEY: process.env.OPENAI_API_KEY },
+            input: userText,
+            encoding: "utf-8"
+          }
+        ).trim();
+      } catch (e) {
+        logger.error("Codex CLI invocation failed", { error: (e as Error).message, iteration });
+        if (iteration > 1) {
+          break; // exit loop after at least one iteration
+        }
+      }
+
+      // Attempt to parse JSON output (assuming quiet mode might output JSON)
+      try {
+        const parsed = JSON.parse(stdoutData);
+        if (parsed && parsed.content && Array.isArray(parsed.content) && parsed.content.length > 0) {
+          newSelfReply = parsed.content[0].text.trim();
+        } else {
+          newSelfReply = stdoutData.trim();
+        }
+      } catch (e) {
         newSelfReply = stdoutData.trim();
       }
-    } catch (e) {
-      newSelfReply = stdoutData.trim();
-    }
-    logger.log("Self-ask reply", { newSelfReplyLength: newSelfReply.length });
+      logger.log("Self-ask reply", { newSelfReplyLength: newSelfReply.length });
 
-    // If no new reply or reply is identical to previous input, break the loop
-    if (!newSelfReply || newSelfReply === userText) {
-      logger.log("No new self reply, ending self-ask flow", { iteration });
-      break;
+      // If no new reply or reply is identical to previous input, break the loop
+      if (!newSelfReply || newSelfReply === userText) {
+        logger.log("No new self reply, ending self-ask flow", { iteration });
+        break;
+      }
+
+      // Run evaluator-optimizer on the reply
+      const optimizedReply = evaluateAndOptimize(newSelfReply, tempDir);
+      logger.log("Evaluated and optimized reply", {
+        iteration,
+        originalLength: newSelfReply.length,
+        optimizedLength: optimizedReply.length
+      });
+
+      // Process any search/replace blocks in the reply
+      const searchReplaceChanges = processSearchReplaceBlocks(optimizedReply, tempDir);
+      if (searchReplaceChanges.length > 0) {
+        logger.log("Applied search/replace operations", {
+          iteration,
+          changesCount: searchReplaceChanges.length,
+          changes: searchReplaceChanges
+        });
+      }
+
+      // Update prompt for next iteration
+      userText = optimizedReply;
     }
 
-    // Run evaluator-optimizer on the reply
-    const optimizedReply = evaluateAndOptimize(newSelfReply, tempDir);
-    logger.log("Evaluated and optimized reply", {
-      iteration,
-      originalLength: newSelfReply.length,
-      optimizedLength: optimizedReply.length
+    // Commit and push changes
+    execSync("git add .", { cwd: tempDir, stdio: "inherit" });
+    execSync('git commit -m "Apply changes from Codex CLI self-ask flow"', { cwd: tempDir, stdio: "inherit" });
+    execSync(`git push -u origin ${branchName}`, {
+      cwd: tempDir,
+      stdio: "inherit",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     });
 
-    // Process any search/replace blocks in the reply
-    const searchReplaceChanges = processSearchReplaceBlocks(optimizedReply, tempDir);
-    if (searchReplaceChanges.length > 0) {
-      logger.log("Applied search/replace operations", {
-        iteration,
-        changesCount: searchReplaceChanges.length,
-        changes: searchReplaceChanges
-      });
+    return tempDir;
+  } catch (err: unknown) {
+    let msg: string;
+    if (err instanceof Error && err.message) {
+      msg = err.message;
+    } else if (typeof err === 'string') {
+      msg = err;
+    } else {
+      msg = 'Unknown error';
     }
-
-    // Update prompt for next iteration
-    userText = optimizedReply;
+    logger.error("codexRepository failed", { error: msg, repoUrl, branchName });
+    throw new Error(`Error processing repository ${repoUrl}: ${msg}. Please check repository settings and try again.`);
   }
-
-  // Commit and push changes
-  execSync("git add .", { cwd: tempDir, stdio: "inherit" });
-  execSync('git commit -m "Apply changes from Codex CLI self-ask flow"', { cwd: tempDir, stdio: "inherit" });
-  execSync(`git push -u origin ${branchName}`, {
-    cwd: tempDir,
-    stdio: "inherit",
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-  });
-
-  return tempDir;
 }
 
 /**
