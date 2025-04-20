@@ -108,8 +108,17 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       // Equivalent to: bunx @openai/codex <args>
       //execSync('bun add -g @openai/codex', { stdio: 'inherit' });
 
-      // Run codex CLI using Bun's npx equivalent, passing userText via stdin
-      const codexProcess = spawn('bunx', ['@openai/codex', '--full-context', '--approval-mode', 'full-auto', '-m', 'gpt-4.1-2025-04-14', '-q', '--full-stdout', '--dangerously-auto-approve-everything', `\"${userText}\"`], {
+      // Run codex CLI using Bun's npx equivalent with options to avoid Ink raw mode error
+      const codexProcess = spawn('bunx', [
+        '@openai/codex',
+        '--full-context',
+        '--approval-mode', 'full-auto',
+        '-m', 'gpt-4.1-2025-04-14',
+        '-q',
+        '--full-stdout',
+        '--dangerously-auto-approve-everything',
+        '--no-tty' // Disable TTY to prevent Ink raw mode error
+      ], {
         cwd: tempDir,
         shell: true,
         env: {
@@ -124,13 +133,11 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       codexProcess.stdout?.on('data', (data: Buffer | string) => {
         stdout += data.toString();
         logger.log(`Codex data stdout: ${stdout}`);
-
       });
 
       codexProcess.stderr?.on('data', (data: Buffer | string) => {
         stderr += data.toString();
         logger.log(`Codex data stderr: ${stderr}`);
-
       });
 
       codexProcess.on('error', (error: Error) => {
@@ -140,8 +147,8 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       // Ensure patch text starts with required header for codex CLI
       const patchText = userText.startsWith('*** Begin Patch') ? userText : `*** Begin Patch\n${userText}`;
 
-      //codexProcess.stdin?.write(patchText);
-      //codexProcess.stdin?.end();
+      codexProcess.stdin?.write(patchText);
+      codexProcess.stdin?.end();
 
       await new Promise<void>((resolve) => {
         codexProcess.on('close', (code: number) => {
