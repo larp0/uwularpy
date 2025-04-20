@@ -1,4 +1,4 @@
-import { execSync, spawn } from "child_process";
+import { execSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -67,42 +67,22 @@ export async function codexRepository(
     iteration++;
     logger.log("Running Codex CLI self-ask iteration", { iteration, promptLength: userText.length });
 
-    // Use spawn to run Codex CLI and pipe prompt to stdin
-    const codexProcess = spawn("bunx", [
-      "@openai/codex",
-      "--approval-mode", "full-auto",
-      "--model", "gpt-4.1-2025-04-14",
-      // Removed --quiet and --no-tty for better debugging output
-      // Removed --input to rely solely on stdin piping
-    ], {
-      cwd: tempDir,
-      shell: true,
-      env: {
-        ...process.env, // Inherit existing environment variables
-        OPENAI_API_KEY: process.env.OPENAI_API_KEY // Explicitly forward API key
-      },
-      stdio: ["pipe", "pipe", "inherit"] // Pipe stdin/stdout, inherit stderr
-    });
-
-    // Pipe prompt content to Codex CLI stdin
-    codexProcess.stdin.write(userText);
-    codexProcess.stdin.end();
-
-    // Collect stdout data
+    // Run Codex CLI via execSync, passing prompt to stdin and capturing stdout
     let stdoutData = "";
-    for await (const chunk of codexProcess.stdout) {
-      stdoutData += chunk.toString();
-    }
-
-    // Wait for process to exit
-    const exitCode: number = await new Promise((resolve) => {
-      codexProcess.on("close", resolve);
-    });
-    if (exitCode !== 0) {
-      logger.error("Codex CLI exited non-zero in self-ask loop", { stdoutData, exitCode, iteration });
+    try {
+      stdoutData = execSync(
+        `bunx @openai/codex --approval-mode full-auto --quiet`,
+        {
+          cwd: tempDir,
+          env: { ...process.env, OPENAI_API_KEY: process.env.OPENAI_API_KEY },
+          input: userText,
+          encoding: "utf-8"
+        }
+      ).trim();
+    } catch (e) {
+      logger.error("Codex CLI invocation failed", { error: (e as Error).message, iteration });
       if (iteration > 1) {
-        // Only break if we've completed at least one iteration
-        break;
+        break; // exit loop after at least one iteration
       }
     }
 
