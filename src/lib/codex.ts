@@ -68,16 +68,15 @@ export async function codexRepository(
       iteration++;
       logger.log("Running Codex CLI self-ask iteration", { iteration, promptLength: userText.length });
 
-      // Run Codex CLI via execSync, passing prompt as a command-line argument and capturing stdout
+      // Run Codex CLI via execSync, passing prompt via stdin and capturing stdout
       let stdoutData = "";
       try {
-        // Properly escape the prompt text for shell command execution
-        const escapedPrompt = userText.replace(/"/g, '\\"').replace(/\$/g, '\\$').replace(/`/g, '\\`');
         stdoutData = execSync(
-          `bunx @openai/codex --approval-mode full-auto -q "${escapedPrompt}"`,
+          `bunx @openai/codex --approval-mode full-auto`,
           {
             cwd: tempDir,
             env: { ...process.env, OPENAI_API_KEY: process.env.OPENAI_API_KEY },
+            input: userText,
             encoding: "utf-8"
           }
         ).trim();
