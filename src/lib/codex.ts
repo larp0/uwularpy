@@ -95,15 +95,14 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
   while (true) {
     logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)}`);
 
-    // Spawn codex CLI process
+    // Spawn codex CLI process with prompt argument (required in quiet mode)
     const codexProcess = spawn('bunx', [
       '@openai/codex',
       '--approval-mode', 'full-auto',
       '--model', 'gpt-4.1-2025-04-14',
       '--quiet',
-      '--full-stdout',
-      '--dangerously-auto-approve-everything',
-      '--no-tty' // Disable TTY to prevent Ink raw mode error
+    //   '--no-tty', // Disable TTY to prevent Ink raw mode error
+      `"${userText}"` // Corrected argument name to 'prompt' as per latest feedback
     ], {
       cwd: tempDir,
       shell: true,
