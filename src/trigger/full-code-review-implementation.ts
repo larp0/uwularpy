@@ -123,7 +123,7 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   const systemMsg = "You are a code reviewer. Review the code changes below for quality, security, and style issues.";
   const userMsg = `DIFF:\n${diff}\n\nORIGINAL FILES:\n${JSON.stringify(originalFiles)}`;
   const requestBody = {
-    model: "gpt-4",
+    model: "gpt-4.1-nano",
     messages: [
       { role: "system", content: systemMsg },
       { role: "user", content: userMsg }
