@@ -95,7 +95,7 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
   while (true) {
     logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)}`);
 
-    // Write userText to a temporary file and pass the file path to codex CLI to avoid shell parsing issues
+    // Instead of passing prompt file path, run 'cat prompt.txt' and pipe to codex CLI stdin
     const tempPromptFile = path.join(tempDir, 'prompt.txt');
     fs.writeFileSync(tempPromptFile, userText, 'utf-8');
 
@@ -104,16 +104,20 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       '--approval-mode', 'full-auto',
       '--model', 'gpt-4.1-2025-04-14',
       '--quiet',
-      '--no-tty', // Disable TTY to prevent Ink raw mode error
-      tempPromptFile
+      '--no-tty' // Disable TTY to prevent Ink raw mode error
     ], {
       cwd: tempDir,
       shell: true,
       env: {
         ...process.env,
         OPENAI_API_KEY: process.env.OPENAI_API_KEY || ''
-      }
+      },
+      stdio: ['pipe', 'pipe', 'pipe']
     });
+
+    // Pipe the contents of prompt.txt to codex CLI stdin
+    const catProcess = spawn('cat', [tempPromptFile], { stdio: ['ignore', 'pipe', 'inherit'] });
+    catProcess.stdout.pipe(codexProcess.stdin);
 
     let stdout = '';
     let stderr = '';
