@@ -1,0 +1,12 @@
+add telegram bot to call codexTask on specified repos
+
+Please respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:
+
+```search-replace
+FILE: path/to/file.ext
+<<<<<<< SEARCH
+exact content to find
+=======
+new content to replace with
+>>>>>>> REPLACE
+```
