@@ -65,7 +65,7 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
       const blob: any = contentData;
       
       // Skip if no content or size too large (>100KB)
-      if (!blob.content || blob.size > 10000000) {
+      if (!blob.content || blob.size > 1000000000) {
         skippedFiles.push(f);
         continue;
       }
@@ -104,7 +104,7 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   
   // Check if diff is too large (rough estimate for token limit)
   const diffSize = diff.length;
-  const MAX_DIFF_SIZE = 100000; // ~25K tokens estimate
+  const MAX_DIFF_SIZE = 100000000; // ~25K tokens estimate
   
   if (diffSize > MAX_DIFF_SIZE) {
     logger.warn("Diff is too large for review", { diffSize });
