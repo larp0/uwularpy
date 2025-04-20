@@ -71,34 +71,37 @@ export async function codexRepository(
       // Run Codex CLI via execSync, passing prompt via stdin and capturing stdout
       let stdoutData = "";
       try {
-        // Ensure the input is properly formatted and has the right encoding
-        logger.log("Running Codex CLI with JSON mode", { inputLength: userText.length });
+        // The codex CLI specifically requires patch text via stdin with no flags
+        logger.log("Running Codex CLI in patch mode", { inputLength: userText.length });
         
-        // Create a temporary file with the prompt content
-        const promptFilePath = path.join(tempDir, "prompt.txt");
-        fs.writeFileSync(promptFilePath, userText, "utf-8");
+        // Create a temporary file that writes a script to run codex with the prompt
+        const scriptContent = `#!/bin/bash
+export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}
+echo '${userText.replace(/'/g, "'\\''")}' | bunx @openai/codex --approval-mode full-auto
+`;
+        const scriptPath = path.join(tempDir, "run_codex.sh");
+        fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
         
-        // Use --json mode which doesn't require raw stdin and read from file
+        // Execute the script which properly pipes the input to codex
         stdoutData = execSync(
-          `bunx @openai/codex --json --approval-mode full-auto --file ${promptFilePath}`,
+          scriptPath,
           {
             cwd: tempDir,
             env: { 
-              ...process.env, 
-              OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+              ...process.env,
               FORCE_COLOR: "0",  // Disable color to avoid TTY-related issues
-              CI: "true"         // Signal that we're in a CI-like environment
+              CI: "true"         // Signal that we're in a CI-like environment 
             },
             encoding: "utf-8",
             maxBuffer: 10 * 1024 * 1024 // Increase buffer size to 10MB
           }
         ).trim();
         
-        // Clean up the temporary file
+        // Clean up the temporary script
         try {
-          fs.unlinkSync(promptFilePath);
+          fs.unlinkSync(scriptPath);
         } catch (e) {
-          logger.warn("Failed to clean up prompt file", { path: promptFilePath });
+          logger.warn("Failed to clean up script file", { path: scriptPath });
         }
         
         // Log the output for debugging
