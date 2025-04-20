@@ -67,12 +67,13 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   const review = aiResponse.choices?.[0]?.message?.content || "";
   logger.log("Received review from OpenAI");
 
-  // Post comment back to the PR
+  // Post comment back to the PR, default to a placeholder if review is empty
+  const commentBody = review.trim() || "🛑 OpenAI returned an empty review. Please try again later.";
   await octokit.issues.createComment({
     owner,
     repo,
     issue_number: issueNumber,
-    body: review
+    body: commentBody
   });
 
   return { success: true };
