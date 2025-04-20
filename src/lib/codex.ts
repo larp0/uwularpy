@@ -111,10 +111,10 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       // Run codex CLI using Bun's npx equivalent with options to avoid Ink raw mode error
       const codexProcess = spawn('bunx', [
         '@openai/codex',
-        '--full-context',
         '--approval-mode', 'full-auto',
-        '-m', 'gpt-4.1-2025-04-14',
-        '-q',
+        '--writable-root', '/',
+        '--model', 'gpt-4.1-2025-04-14',
+        '--quiet',
         '--full-stdout',
         '--dangerously-auto-approve-everything',
         '--no-tty' // Disable TTY to prevent Ink raw mode error
