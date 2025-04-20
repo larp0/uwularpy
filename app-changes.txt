@@ -1,0 +1,54 @@
+```search-replace
+FILE: test-repo/src/test-app.js
+<<<<<<< SEARCH
+function fetchData() {
+  // TODO: Implement data fetching
+  console.log("Fetching data...");
+  return { status: "pending" };
+}
+=======
+async function fetchData(url) {
+  // Implemented data fetching with fetch API
+  console.log(`Fetching data from ${url}...`);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Error fetching data:", error.message);
+    throw error;
+  }
+}
+
+function processData(data) {
+  console.log("Processing data...");
+  // Simple processing - extract keys and add metadata
+  const processedData = {
+    originalData: data,
+    metadata: {
+      processedAt: new Date().toISOString(),
+      keys: Object.keys(data)
+    }
+  };
+  return processedData;
+}
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+module.exports = {
+  greet,
+  calculateSum,
+  fetchData
+};
+=======
+module.exports = {
+  greet,
+  calculateSum,
+  fetchData,
+  processData
+};
+>>>>>>> REPLACE
+```

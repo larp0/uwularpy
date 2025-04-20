@@ -28,3 +28,13 @@ export const codexTask = task({
     return await runCodexTask(payload, ctx);
   },
 });
+
+export const fullCodeReviewTask = task({
+  id: "full-code-review",
+  machine: "large-2x",
+  maxDuration: 900, // 15 minutes
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runFullCodeReviewTask } = await import("./full-code-review-implementation");
+    return await runFullCodeReviewTask(payload, ctx);
+  },
+});

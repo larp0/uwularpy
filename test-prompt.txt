@@ -1,0 +1,5 @@
+Add error handling to the greet function in src/test-app.js:
+1. Validate that name is a non-empty string
+2. Trim any whitespace from the name
+3. Return null if validation fails
+4. Add a descriptive error message using console.warn

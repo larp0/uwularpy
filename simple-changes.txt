@@ -1,0 +1,8 @@
+```search-replace
+FILE: test-repo/simple.txt
+<<<<<<< SEARCH
+Here's a line we want to change.
+=======
+This line has been MODIFIED successfully!
+>>>>>>> REPLACE
+```

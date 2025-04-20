@@ -50,7 +50,16 @@ export async function POST(request: NextRequest) {
           };
 
           if (textAfterMention) {
-            // If there is text after the mention, trigger the Codex task
+            // If the text after mention is 'r', trigger the full code review task
+            if (textAfterMention.trim().toLowerCase() === 'r') {
+              const runHandle = await triggerTask("full-code-review", context);
+              console.log(`Triggered full-code-review task, run ID: ${runHandle.id}`);
+              return NextResponse.json({ 
+                message: 'Full code review task triggered', 
+                runId: runHandle.id 
+              }, { status: 200 });
+            }
+            // Otherwise, trigger the Codex task
             const runHandle = await triggerTask("codex-task", { ...context });
             console.log(`Triggered codex-task, run ID: ${runHandle.id}`);
             return NextResponse.json({ 

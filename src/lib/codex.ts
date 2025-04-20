@@ -62,33 +62,35 @@ export async function codexRepository(
   let userText = prompt + "\n\nPlease respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
   let newSelfReply = "";
   let iteration = 0;
-  
+
   while (true) {
     iteration++;
     logger.log("Running Codex CLI self-ask iteration", { iteration, promptLength: userText.length });
-    const promptFilePath = path.join(tempDir, "prompt.txt");
-    fs.writeFileSync(promptFilePath, userText, "utf-8");
-    
-    // Use spawn to run Codex CLI
+
+    // Use spawn to run Codex CLI and pipe prompt to stdin
     const codexProcess = spawn("bunx", [
       "@openai/codex",
       "--approval-mode", "full-auto",
       "--model", "gpt-4.1-2025-04-14",
-      "--quiet",
-      `"${userText}"`,
+      // Removed --quiet and --no-tty for better debugging output
+      // Removed --input to rely solely on stdin piping
     ], {
       cwd: tempDir,
       shell: true,
       env: process.env,
-      stdio: ["pipe", "pipe", "inherit"]
+      stdio: ["pipe", "pipe", "inherit"] // Pipe stdin/stdout, inherit stderr
     });
-    
+
+    // Pipe prompt content to Codex CLI stdin
+    codexProcess.stdin.write(userText);
+    codexProcess.stdin.end();
+
     // Collect stdout data
     let stdoutData = "";
     for await (const chunk of codexProcess.stdout) {
       stdoutData += chunk.toString();
     }
-    
+
     // Wait for process to exit
     const exitCode: number = await new Promise((resolve) => {
       codexProcess.on("close", resolve);
@@ -100,8 +102,8 @@ export async function codexRepository(
         break;
       }
     }
-    
-    // Attempt to parse JSON output
+
+    // Attempt to parse JSON output (assuming quiet mode might output JSON)
     try {
       const parsed = JSON.parse(stdoutData);
       if (parsed && parsed.content && Array.isArray(parsed.content) && parsed.content.length > 0) {
@@ -112,31 +114,32 @@ export async function codexRepository(
     } catch (e) {
       newSelfReply = stdoutData.trim();
     }
-    
+    logger.log("Self-ask reply", { newSelfReplyLength: newSelfReply.length });
+
     // If no new reply or reply is identical to previous input, break the loop
     if (!newSelfReply || newSelfReply === userText) {
       logger.log("No new self reply, ending self-ask flow", { iteration });
       break;
     }
-    
+
     // Run evaluator-optimizer on the reply
     const optimizedReply = evaluateAndOptimize(newSelfReply, tempDir);
-    logger.log("Evaluated and optimized reply", { 
+    logger.log("Evaluated and optimized reply", {
       iteration,
       originalLength: newSelfReply.length,
       optimizedLength: optimizedReply.length
     });
-    
+
     // Process any search/replace blocks in the reply
     const searchReplaceChanges = processSearchReplaceBlocks(optimizedReply, tempDir);
     if (searchReplaceChanges.length > 0) {
-      logger.log("Applied search/replace operations", { 
+      logger.log("Applied search/replace operations", {
         iteration,
-        changesCount: searchReplaceChanges.length, 
-        changes: searchReplaceChanges 
+        changesCount: searchReplaceChanges.length,
+        changes: searchReplaceChanges
       });
     }
-    
+
     // Update prompt for next iteration
     userText = optimizedReply;
   }
@@ -166,30 +169,30 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
     codeBlocks.push(match);
     return `CODE_BLOCK_${codeBlocks.length - 1}`;
   });
-  
+
   // Step 2: Evaluate the clarity and completeness of the text
   let optimizedText = textWithoutCodeBlocks;
-  
+
   // Check for vague statements and add specificity
   optimizedText = optimizedText.replace(
     /I (will|would|could|should|might) (do|implement|create|modify|change|update|fix) ([\w\s]+)/gi,
     "I will specifically $2 $3 by following these steps: "
   );
-  
+
   // Ensure all TODO items have clear next steps
   optimizedText = optimizedText.replace(
     /TODO: ([\w\s]+)(?!\s*\d\.)/gi,
     "TODO: $1\n1. "
   );
-  
+
   // Step 3: Evaluate code blocks for syntax errors and best practices
   const optimizedCodeBlocks = codeBlocks.map((block) => {
     // Remove the code block markers for processing
     const code = block.replace(/```[\w]*\n|```$/g, "");
-    
+
     // Check for common issues in code
     let optimizedCode = code;
-    
+
     // Add proper error handling where missing
     if (code.includes("try {") && !code.includes("catch")) {
       optimizedCode = optimizedCode.replace(
@@ -197,17 +200,17 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
         "try {$1} catch (error) {\n  console.error('Operation failed:', error);\n}"
       );
     }
-    
+
     // Ensure async/await consistency
     if (code.includes("await") && !code.includes("async")) {
       optimizedCode = "async " + optimizedCode;
     }
-    
+
     // Wrap back in code block markers
     const language = block.match(/```([\w]*)/)?.[1] || "";
     return "```" + language + "\n" + optimizedCode + "\n```";
   });
-  
+
   // Step 4: Reassemble the text with optimized code blocks
   let finalOptimizedReply = optimizedText;
   for (let i = 0; i < optimizedCodeBlocks.length; i++) {
@@ -216,14 +219,14 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
       optimizedCodeBlocks[i]
     );
   }
-  
+
   // Step 5: Final readability improvements
   finalOptimizedReply = finalOptimizedReply
     // Ensure clear section breaks
     .replace(/(?<!\n\n)(#+\s.*)/g, "\n\n$1")
     // Ensure list items are properly formatted
     .replace(/(?<!\n)(\d+\.\s)/g, "\n$1");
-  
+
   return finalOptimizedReply;
 }
 
@@ -235,46 +238,46 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
  */
 function processSearchReplaceBlocks(reply: string, repoPath: string): Array<{ file: string; applied: boolean }> {
   const changes: Array<{ file: string; applied: boolean }> = [];
-  
+
   // Find all search-replace blocks
   const searchReplaceRegex = /```search-replace\n([\s\S]*?)```/g;
   let match;
-  
+
   while ((match = searchReplaceRegex.exec(reply)) !== null) {
     const block = match[1];
-    
+
     // Extract file path
     const fileMatch = block.match(/FILE:\s*(.*)/);
     if (!fileMatch) continue;
-    
+
     const filePath = path.join(repoPath, fileMatch[1].trim());
     if (!fs.existsSync(filePath)) {
       logger.warn("Search/replace target file does not exist", { filePath });
       changes.push({ file: fileMatch[1].trim(), applied: false });
       continue;
     }
-    
+
     // Find all SEARCH/REPLACE operations
     const operationRegex = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
     let fileContent = fs.readFileSync(filePath, "utf-8");
     let operationMatch;
     let fileModified = false;
-    
+
     while ((operationMatch = operationRegex.exec(block)) !== null) {
       const searchText = operationMatch[1];
       const replaceText = operationMatch[2];
-      
+
       if (fileContent.includes(searchText)) {
         fileContent = fileContent.replace(searchText, replaceText);
         fileModified = true;
       } else {
-        logger.warn("Search text not found in file", { 
+        logger.warn("Search text not found in file", {
           filePath,
           searchTextLength: searchText.length
         });
       }
     }
-    
+
     if (fileModified) {
       fs.writeFileSync(filePath, fileContent, "utf-8");
       changes.push({ file: fileMatch[1].trim(), applied: true });
@@ -282,7 +285,7 @@ function processSearchReplaceBlocks(reply: string, repoPath: string): Array<{ fi
       changes.push({ file: fileMatch[1].trim(), applied: false });
     }
   }
-  
+
   return changes;
 }
 
