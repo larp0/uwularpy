@@ -208,47 +208,69 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       break;
     }
 
-    // Parse and apply changes from Codex reply to the repository only if a specific tool call is detected
+    // Use OpenAI GPT-4o-mini to extract tool actions from Codex reply and apply changes
     try {
-      // Improved tool call detection by parsing JSON and checking for 'tool_call' or 'function_call' keys
-      let parsedReply;
-      try {
-        parsedReply = JSON.parse(newSelfReply);
-      } catch (jsonError) {
-        logger.warn("Codex reply is not valid JSON, skipping apply");
-        parsedReply = null;
+      const openai = await import('openai');
+      const client = new openai.OpenAI();
+
+      const extractionPrompt = `
+You are a tool action extractor. Given the following Codex reply, extract all tool actions in the required JSON format:
+{ "changes": [ { "file": "path/to/file", "content": "new file content" }, ... ] }
+If no tool actions are present, respond with an empty changes array.
+
+Codex reply:
+${newSelfReply}
+`;
+
+      const extractionResponse = await client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: 'You extract tool actions from Codex replies.' },
+          { role: 'user', content: extractionPrompt }
+        ],
+        max_tokens: 1500,
+        temperature: 0,
+        top_p: 1,
+        frequency_penalty: 0,
+        presence_penalty: 0
+      });
+
+      let extractedActions = null;
+      if (extractionResponse.choices && extractionResponse.choices.length > 0) {
+        const content = extractionResponse.choices[0].message?.content || '';
+        try {
+          extractedActions = JSON.parse(content);
+        } catch (parseError) {
+          logger.warn("Failed to parse extracted tool actions JSON, skipping apply");
+          extractedActions = null;
+        }
       }
 
-      if (parsedReply && (parsedReply.tool_call || parsedReply.function_call || parsedReply.changes)) {
-        // Expecting Codex to output changes in a structured JSON format:
-        // { "changes": [ { "file": "path/to/file", "content": "new file content" }, ... ] }
-        const changesObj = parsedReply;
-        if (!changesObj.changes || !Array.isArray(changesObj.changes)) {
-          logger.warn("No 'changes' array found in Codex reply JSON, skipping apply");
-        } else {
-          for (const change of changesObj.changes) {
-            if (change.file && typeof change.content === 'string') {
-              const filePath = path.join(tempDir, change.file);
-              fs.mkdirSync(path.dirname(filePath), { recursive: true });
-              fs.writeFileSync(filePath, change.content, 'utf-8');
-              logger.log(`Applied change to file: ${change.file}`);
-            } else {
-              logger.warn(`Invalid change entry: ${JSON.stringify(change)}`);
-            }
+      if (extractedActions && extractedActions.changes && Array.isArray(extractedActions.changes)) {
+        for (const change of extractedActions.changes) {
+          if (change.file && typeof change.content === 'string') {
+            const filePath = path.join(tempDir, change.file);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, change.content, 'utf-8');
+            logger.log(`Applied change to file: ${change.file}`);
+          } else {
+            logger.warn(`Invalid change entry: ${JSON.stringify(change)}`);
           }
-          execSync('git add .', { stdio: 'inherit', cwd: tempDir });
-          execSync('git commit -m "Apply changes from Codex reply"', { stdio: 'inherit', cwd: tempDir });
-          logger.log("Applied all changes from Codex reply and committed");
         }
+        execSync('git add .', { stdio: 'inherit', cwd: tempDir });
+        execSync('git commit -m "Apply changes from Codex reply"', { stdio: 'inherit', cwd: tempDir });
+        logger.log("Applied all changes from Codex reply and committed");
       } else {
-        logger.log("No tool call detected in Codex reply, skipping apply");
+        logger.log("No valid changes extracted, skipping apply");
       }
     } catch (applyError) {
       logger.error(`Error applying changes from Codex reply: ${applyError instanceof Error ? applyError.message : 'Unknown error'}`);
       break;
     }
 
-    // Safety check: limit recursion depth to prevent infinite loops
+    // Removed recursion depth limit to allow full autonomous completion
+    // Alternative safeguards should be considered to prevent infinite loops
+    /*
     if (!(globalThis as any).recursionDepth) {
       (globalThis as any).recursionDepth = 0;
     }
@@ -257,6 +279,7 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       logger.warn("Recursion depth limit reached, ending recursion");
       break;
     }
+    */
 
     userText = newSelfReply;
   }
