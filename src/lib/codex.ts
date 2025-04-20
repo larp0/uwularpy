@@ -77,7 +77,10 @@ export async function codexRepository(
     ], {
       cwd: tempDir,
       shell: true,
-      env: process.env,
+      env: {
+        ...process.env, // Inherit existing environment variables
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY // Explicitly forward API key
+      },
       stdio: ["pipe", "pipe", "inherit"] // Pipe stdin/stdout, inherit stderr
     });
 
@@ -96,7 +99,7 @@ export async function codexRepository(
       codexProcess.on("close", resolve);
     });
     if (exitCode !== 0) {
-      logger.error("Codex CLI exited non-zero in self-ask loop", { exitCode, iteration });
+      logger.error("Codex CLI exited non-zero in self-ask loop", { stdoutData, exitCode, iteration });
       if (iteration > 1) {
         // Only break if we've completed at least one iteration
         break;
