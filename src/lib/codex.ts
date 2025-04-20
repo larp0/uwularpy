@@ -71,37 +71,42 @@ export async function codexRepository(
       // Run Codex CLI via execSync, passing prompt via stdin and capturing stdout
       let stdoutData = "";
       try {
-        // The codex CLI specifically requires patch text via stdin with no flags
-        logger.log("Running Codex CLI in patch mode", { inputLength: userText.length });
+        // Simpler direct approach with temp file that should work in more environments
+        logger.log("Running Codex CLI with temp file input", { inputLength: userText.length });
         
-        // Create a temporary file that writes a script to run codex with the prompt
-        const scriptContent = `#!/bin/bash
-export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}
-echo '${userText.replace(/'/g, "'\\''")}' | bunx @openai/codex --approval-mode full-auto
-`;
-        const scriptPath = path.join(tempDir, "run_codex.sh");
-        fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+        // Create a temporary file with the proper format
+        const formattedPrompt = `*** Begin Patch ***\n${userText}\n*** End Patch ***`;
+        const promptFilePath = path.join(tempDir, "prompt.txt");
+        fs.writeFileSync(promptFilePath, formattedPrompt, "utf-8");
         
-        // Execute the script which properly pipes the input to codex
+        // Run Codex CLI with file input - ensure it works in all environments
+        logger.log("Executing Codex CLI with file input", { promptPath: promptFilePath });
+        
+        // Use /bin/bash explicitly to ensure proper redirection support
+        const shellCmd = `/bin/bash -c "bunx @openai/codex --approval-mode full-auto < ${promptFilePath}"`;
+        logger.log("Shell command", { command: shellCmd });
+        
         stdoutData = execSync(
-          scriptPath,
+          shellCmd,
           {
             cwd: tempDir,
             env: { 
-              ...process.env,
+              ...process.env, 
+              OPENAI_API_KEY: process.env.OPENAI_API_KEY,
               FORCE_COLOR: "0",  // Disable color to avoid TTY-related issues
-              CI: "true"         // Signal that we're in a CI-like environment 
+              CI: "true",         // Signal that we're in a CI-like environment
+              NODE_OPTIONS: "--no-warnings" // Suppress Node.js warnings
             },
             encoding: "utf-8",
-            maxBuffer: 10 * 1024 * 1024 // Increase buffer size to 10MB
+            maxBuffer: 10 * 1024 * 1024  // Increase buffer size to 10MB
           }
         ).trim();
         
-        // Clean up the temporary script
+        // Clean up the temporary file
         try {
-          fs.unlinkSync(scriptPath);
+          fs.unlinkSync(promptFilePath);
         } catch (e) {
-          logger.warn("Failed to clean up script file", { path: scriptPath });
+          logger.warn("Failed to clean up prompt file", { path: promptFilePath });
         }
         
         // Log the output for debugging
