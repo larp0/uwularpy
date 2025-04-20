@@ -123,14 +123,18 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
 
       codexProcess.stdout?.on('data', (data: Buffer | string) => {
         stdout += data.toString();
+        logger.log(`Codex data stdout: ${stdout}`);
+
       });
 
       codexProcess.stderr?.on('data', (data: Buffer | string) => {
         stderr += data.toString();
+        logger.log(`Codex data stderr: ${stderr}`);
+
       });
 
       codexProcess.on('error', (error: Error) => {
-        logger.error(`Codex spawn error: ${error.message}`);
+        logger.log(`Codex spawn error: ${error.message}`);
       });
 
       // Ensure patch text starts with required header for codex CLI
