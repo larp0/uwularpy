@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       const owner = body.repository.owner.login;
       
       // Check if the comment mentions @uwularpy or @l
-      if (comment.includes('@uwularpy') || comment.includes('@l')) {
+      if (comment.includes('@uwularpy') || comment.includes('@l ')) {
         console.log(`Mention detected in issue #${issueNumber} by ${requester}`);
 
         // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)

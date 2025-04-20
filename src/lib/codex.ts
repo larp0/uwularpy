@@ -91,15 +91,25 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
 
     // Run codex CLI with user text (replace this with actual user text input)
     const userText = msg || "improve this code";
-    logger.log(`Running codex CLI with user text: ${JSON.stringify(msg)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
-    execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
     
-    try {
+    try {    
+      
+      logger.log(`Running codex CLI with user text: ${JSON.stringify(msg)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
+      execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
+
       // Escape userText for shell command to prevent command injection
       const escapedUserText = userText.replace(/"/g, '\\"');
       
       // Execute codex command with output going directly to parent process
-      const codexResult = spawnSync('codex', ['--approval-mode', 'full-auto', escapedUserText], {
+      // Ensure @openai/codex is installed globally for Bun
+      // No need to install @openai/codex globally here; bunx will fetch and run it on demand.
+      // Use bunx to run @openai/codex directly
+      // This will fetch and run the CLI without needing a global install
+      // Equivalent to: bunx @openai/codex <args>
+      //execSync('bun add -g @openai/codex', { stdio: 'inherit' });
+
+      // Run codex CLI using Bun's npx equivalent
+      const codexResult = spawnSync('bunx', ['@openai/codex', '--approval-mode', 'full-auto', escapedUserText], {
         cwd: tempDir,
         encoding: 'utf-8',
         shell: true
