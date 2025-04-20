@@ -75,18 +75,13 @@ export async function codexRepository(
       "--approval-mode", "full-auto",
       "--model", "gpt-4.1-2025-04-14",
       "--quiet",
-      "--no-tty"
+      `"${userText}"`,
     ], {
       cwd: tempDir,
       shell: true,
       env: process.env,
       stdio: ["pipe", "pipe", "inherit"]
     });
-    
-    // Pipe prompt file contents to Codex CLI stdin
-    const promptContent = fs.readFileSync(promptFilePath, "utf-8");
-    codexProcess.stdin.write(promptContent);
-    codexProcess.stdin.end();
     
     // Collect stdout data
     let stdoutData = "";
