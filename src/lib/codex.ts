@@ -95,7 +95,6 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
     try {    
       
       logger.log(`Running codex CLI with user text: ${JSON.stringify(msg)} ${process.env.OPENAI_API_KEY ? 'with API key' : 'without API key'}`);
-      execSync(`export OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`, { stdio: "inherit" });
 
       // Escape userText for shell command to prevent command injection
       const escapedUserText = userText.replace(/"/g, '\\"');
@@ -117,7 +116,8 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
         '--quiet',
         '--full-stdout',
         '--dangerously-auto-approve-everything',
-        '--no-tty' // Disable TTY to prevent Ink raw mode error
+        '--no-tty', // Disable TTY to prevent Ink raw mode error
+        `"${escapedUserText}"`,
       ], {
         cwd: tempDir,
         shell: true,
@@ -143,12 +143,6 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       codexProcess.on('error', (error: Error) => {
         logger.log(`Codex spawn error: ${error.message}`);
       });
-
-      // Ensure patch text starts with required header for codex CLI
-      const patchText = userText.startsWith('*** Begin Patch') ? userText : `*** Begin Patch\n${userText}`;
-
-      codexProcess.stdin?.write(patchText);
-      codexProcess.stdin?.end();
 
       await new Promise<void>((resolve) => {
         codexProcess.on('close', (code: number) => {
