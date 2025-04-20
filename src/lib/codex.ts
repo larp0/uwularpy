@@ -95,14 +95,14 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
   while (true) {
     logger.log(`Running codex CLI with user text: ${JSON.stringify(userText)}`);
 
-    // Spawn codex CLI process with prompt argument (required in quiet mode)
+    // Spawn codex CLI process with user prompt as last argument (no --prompt flag)
     const codexProcess = spawn('bunx', [
       '@openai/codex',
       '--approval-mode', 'full-auto',
       '--model', 'gpt-4.1-2025-04-14',
       '--quiet',
-    //   '--no-tty', // Disable TTY to prevent Ink raw mode error
-      `"${userText}"` // Corrected argument name to 'prompt' as per latest feedback
+      '--no-tty', // Disable TTY to prevent Ink raw mode error
+      `"${userText}"`
     ], {
       cwd: tempDir,
       shell: true,
@@ -202,6 +202,33 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
 
     if (newSelfReply === userText) {
       logger.log("Reply same as previous input, ending recursion");
+      break;
+    }
+
+    // Parse and apply changes from Codex reply to the repository
+    try {
+      // Expecting Codex to output changes in a structured JSON format:
+      // { "changes": [ { "file": "path/to/file", "content": "new file content" }, ... ] }
+      const changesObj = JSON.parse(newSelfReply);
+      if (!changesObj.changes || !Array.isArray(changesObj.changes)) {
+        logger.warn("No 'changes' array found in Codex reply JSON, skipping apply");
+      } else {
+        for (const change of changesObj.changes) {
+          if (change.file && typeof change.content === 'string') {
+            const filePath = path.join(tempDir, change.file);
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            fs.writeFileSync(filePath, change.content, 'utf-8');
+            logger.log(`Applied change to file: ${change.file}`);
+          } else {
+            logger.warn(`Invalid change entry: ${JSON.stringify(change)}`);
+          }
+        }
+        execSync('git add .', { stdio: 'inherit', cwd: tempDir });
+        execSync('git commit -m "Apply changes from Codex reply"', { stdio: 'inherit', cwd: tempDir });
+        logger.log("Applied all changes from Codex reply and committed");
+      }
+    } catch (applyError) {
+      logger.error(`Error applying changes from Codex reply: ${applyError instanceof Error ? applyError.message : 'Unknown error'}`);
       break;
     }
 
