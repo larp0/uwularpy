@@ -1,0 +1,9 @@
+Sure! To assist you effectively with the file located at `/tmp/repo-AU4Efz/prompt.txt`, please clarify your goal regarding this file. Here are some possible actions you might consider:
+
+1. **Read its contents**: If you want to see what is inside the file, I can help you with that.
+2. **Modify or process its contents**: If you need to change something in the file or apply some processing (like formatting, filtering, etc.), let me know the specifics.
+3. **Analyze its contents**: If you want to extract certain information or perform an analysis based on the text in the file, please specify what you're looking to find.
+4. **Delete or move the file**: If you want to remove or relocate the file, I can guide you on that as well.
+5. **Convert its format**: If you're looking to convert the file to another format (like .csv, .json, etc.), please indicate what format you need.
+
+Please specify your goal or the task you want to accomplish, and I'll provide you with a detailed, step-by-step guide to achieve it!
