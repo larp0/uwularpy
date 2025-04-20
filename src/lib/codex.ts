@@ -207,10 +207,19 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
 
     // Parse and apply changes from Codex reply to the repository only if a specific tool call is detected
     try {
-      if (newSelfReply.includes('"tool_call"') || newSelfReply.includes('"function_call"')) {
+      // Improved tool call detection by parsing JSON and checking for 'tool_call' or 'function_call' keys
+      let parsedReply;
+      try {
+        parsedReply = JSON.parse(newSelfReply);
+      } catch (jsonError) {
+        logger.warn("Codex reply is not valid JSON, skipping apply");
+        parsedReply = null;
+      }
+
+      if (parsedReply && (parsedReply.tool_call || parsedReply.function_call || parsedReply.changes)) {
         // Expecting Codex to output changes in a structured JSON format:
         // { "changes": [ { "file": "path/to/file", "content": "new file content" }, ... ] }
-        const changesObj = JSON.parse(newSelfReply);
+        const changesObj = parsedReply;
         if (!changesObj.changes || !Array.isArray(changesObj.changes)) {
           logger.warn("No 'changes' array found in Codex reply JSON, skipping apply");
         } else {
