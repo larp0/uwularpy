@@ -108,23 +108,46 @@ export async function codexRepository(msg: any, repoUrl: string, branchName: str
       // Equivalent to: bunx @openai/codex <args>
       //execSync('bun add -g @openai/codex', { stdio: 'inherit' });
 
-      // Run codex CLI using Bun's npx equivalent
-      const codexResult = spawnSync('bunx', ['@openai/codex', '--approval-mode', 'full-auto', escapedUserText], {
+      // Run codex CLI using Bun's npx equivalent, passing userText via stdin
+      const codexProcess = spawn('bunx', ['@openai/codex', '--approval-mode', 'full-auto'], {
         cwd: tempDir,
-        encoding: 'utf-8',
-        shell: true
+        shell: true,
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY || ''
+        }
       });
 
-      logger.log("Codex stdout:", { stdout: codexResult.stdout });
-      logger.log("Codex stderr:", { stderr: codexResult.stderr });
+      let stdout = '';
+      let stderr = '';
 
-      if (codexResult.error) {
-        logger.error(`Codex spawn error: ${codexResult.error.message}`);
-      }
-      if (codexResult.status !== 0) {
-        logger.error(`Codex exited with code ${codexResult.status}`);
-      }
-      logger.log("Codex command executed successfully");
+      codexProcess.stdout?.on('data', (data: Buffer | string) => {
+        stdout += data.toString();
+      });
+
+      codexProcess.stderr?.on('data', (data: Buffer | string) => {
+        stderr += data.toString();
+      });
+
+      codexProcess.on('error', (error: Error) => {
+        logger.error(`Codex spawn error: ${error.message}`);
+      });
+
+      codexProcess.stdin?.write(userText);
+      codexProcess.stdin?.end();
+
+      await new Promise<void>((resolve) => {
+        codexProcess.on('close', (code: number) => {
+          if (code !== 0) {
+            logger.error(`Codex exited with code ${code}`);
+          } else {
+            logger.log("Codex command executed successfully");
+          }
+          logger.log("Codex stdout:", { stdout });
+          logger.log("Codex stderr:", { stderr });
+          resolve();
+        });
+      });
     } catch (error) {
       logger.error(`Error executing codex command: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
