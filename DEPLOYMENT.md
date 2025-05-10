@@ -1,50 +1,50 @@
-# Vercel Deployment Guide for UwUlarpy
+# Vewcew Depwoyment Guide fow UwUwawpy
 
-This guide will help you deploy the UwUlarpy Next.js application to Vercel without encountering dependency errors.
+Dis guide wiww hewp you depwoy de UwUwawpy Nyext.js appwication to Vewcew widout encountewing dependency ewwows.
 
-## Prerequisites
+## Pwewequisites
 
 - A GitHub account
-- A Vercel account linked to your GitHub
-- A GitHub App for webhook processing (if you plan to use the webhook functionality)
+- A Vewcew account winked to youw GitHub
+- A GitHub App fow webhook pwocessing (if you pwan to use de webhook functionyawity)
 
-## Step 1: Deploy from GitHub
+## Step 1: Depwoy fwom GitHub
 
-1. Log in to your Vercel account
-2. Click "Add New..." → "Project"
-3. Select the "uwularpy" repository
-4. Vercel will automatically detect it as a Next.js project
-5. Click "Deploy"
+1~ Wog in to youw Vewcew account
+2~ Cwick "Add Nyew..." → "Pwoject"
+3~ Sewect de "uwuwawpy" wepositowy
+4~ Vewcew wiww automaticawwy detect it as a Nyext.js pwoject
+5~ Cwick "Depwoy"
 
-## Step 2: Configure Environment Variables
+## Step 2: Configuwe Enviwonment Vawiabwes
 
-For the webhook functionality to work properly, you need to add these environment variables in Vercel:
+Fow de webhook functionyawity to wowk pwopewwy, you nyeed to add dese enviwonment vawiabwes in Vewcew:
 
-1. Go to your project settings in Vercel
-2. Navigate to "Environment Variables"
-3. Add the following variables:
-   - `APP_ID`: Your GitHub App ID
-   - `PRIVATE_KEY`: Your GitHub App private key (include BEGIN/END lines)
-   - `WEBHOOK_SECRET`: Your GitHub webhook secret
+1~ Go to youw pwoject settings in Vewcew
+2~ Nyavigate to "Enviwonment Vawiabwes"
+3~ Add de fowwowing vawiabwes:
+   - `APP_ID`: Youw GitHub App ID
+   - `PRIVATE_KEY`: Youw GitHub App pwivate key (incwude BEGIN/END winyes)
+   - `WEBHOOK_SECRET`: Youw GitHub webhook secwet
 
-## Step 3: Update GitHub App Webhook URL
+## Step 3: Update GitHub App Webhook UWW
 
-1. Go to your GitHub App settings
-2. Update the webhook URL to point to your Vercel deployment:
+1~ Go to youw GitHub App settings
+2~ Update de webhook UWW to point to youw Vewcew depwoyment:
    `https://your-vercel-deployment.vercel.app/api/webhook`
 
-## Troubleshooting
+## Twoubweshooting
 
-If you encounter any issues:
+If you encountew any issues:
 
-1. Check Vercel build logs for errors
-2. Verify that all environment variables are correctly set
-3. Ensure your GitHub App has the necessary permissions:
-   - Repository contents: Read & write
-   - Issues: Read & write
+1~ Check Vewcew buiwd wogs fow ewwows
+2~ Vewify dat aww enviwonment vawiabwes awe cowwectwy set
+3~ Ensuwe youw GitHub App has de nyecessawy pewmissions:
+   - Wepositowy contents: Wead & wwite
+   - Issues: Wead & wwite
 
-## Testing the Deployment
+## Testing de Depwoyment
 
-1. Create an issue in a repository where your GitHub App is installed
-2. Add a comment mentioning "@uwularpy"
-3. You should see an immediate reply and a new PR with uwuified content
+1~ Cweate an issue in a wepositowy whewe youw GitHub App is instawwed
+2~ Add a comment mentionying "@uwuwawpy"
+3~ You shouwd see an immediate wepwy and a nyew PW wid uwuified content

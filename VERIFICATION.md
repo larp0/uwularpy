@@ -1,70 +1,70 @@
-# Verifying Uwularpy Deployment on Vercel
+# Vewifying Uwuwawpy Depwoyment on Vewcew
 
-This guide will help you verify that your uwularpy webhook is properly deployed and functioning on Vercel.
+Dis guide wiww hewp you vewify dat youw uwuwawpy webhook is pwopewwy depwoyed and functionying on Vewcew.
 
-## Prerequisites
+## Pwewequisites
 
-Before testing, ensure:
+Befowe testing, ensuwe:
 
-1. Your Vercel deployment is complete and showing as "Ready"
-2. You've set the following environment variables in your Vercel project:
-   - `APP_ID`: Your GitHub App ID
-   - `PRIVATE_KEY`: Your GitHub App private key (including BEGIN/END lines)
-   - `WEBHOOK_SECRET`: Your GitHub webhook secret
-3. Your GitHub App webhook URL is pointing to your Vercel deployment URL + `/api/webhook`
-   - Example: `https://uwularpy.vercel.app/api/webhook`
+1~ Youw Vewcew depwoyment is compwete and showing as "Weady"
+2~ You've set de fowwowing enviwonment vawiabwes in youw Vewcew pwoject:
+   - `APP_ID`: Youw GitHub App ID
+   - `PRIVATE_KEY`: Youw GitHub App pwivate key (incwuding BEGIN/END winyes)
+   - `WEBHOOK_SECRET`: Youw GitHub webhook secwet
+3~ Youw GitHub App webhook UWW is pointing to youw Vewcew depwoyment UWW + `/api/webhook`
+   - Exampwe: `https://uwularpy.vercel.app/api/webhook`
 
-## Testing the Webhook
+## Testing de Webhook
 
-### Step 1: Create a Test Issue
-1. Go to a repository where your GitHub App is installed
-2. Create a new issue with any title (e.g., "Testing uwularpy webhook")
+### Step 1: Cweate a Test Issue
+1~ Go to a wepositowy whewe youw GitHub App is instawwed
+2~ Cweate a nyew issue wid any titwe (e.g., "Testing uwuwawpy webhook")
 
-### Step 2: Mention @uwularpy
-1. Add a comment to the issue that includes "@uwularpy"
-2. Example: "Hey @uwularpy, can you uwuify this repository?"
+### Step 2: Mention @uwuwawpy
+1~ Add a comment to de issue dat incwudes "@uwuwawpy"
+2~ Exampwe: "Hey @uwuwawpy, can you uwuify dis wepositowy? owo"
 
-### Step 3: Verify Immediate Response
-1. You should immediately see a reply comment saying "see you, uwuing..."
-2. This confirms that the webhook received your mention and is processing it
+### Step 3: Vewify Immediate Wesponse
+1~ You shouwd immediatewy see a wepwy comment saying "see you, uwuing..."
+2~ Dis confiwms dat de webhook weceived youw mention and is pwocessing it
 
-### Step 4: Check for Branch and PR Creation
-1. After a short time (usually within a minute), a new branch named `uwuify-issue-X` should be created
-2. A pull request with uwuified markdown files should be created
-3. You should receive a notification in the issue when the PR is ready
+### Step 4: Check fow Bwanch and PW Cweation
+1~ Aftew a showt time (usuawwy widin a minyute), a nyew bwanch nyamed `uwuify-issue-X` shouwd be cweated
+2~ A puww wequest wid uwuified mawkdown fiwes shouwd be cweated
+3~ You shouwd weceive a nyotification in de issue when de PW is weady
 
-## Troubleshooting
+## Twoubweshooting
 
-If the webhook doesn't respond:
+If de webhook doesn't wespond:
 
-### Check Vercel Logs
-1. Go to your Vercel dashboard
-2. Navigate to your project
-3. Click on "Deployments" and select the latest deployment
-4. Click on "Functions" to view function logs
-5. Look for any errors in the webhook function
+### Check Vewcew Wogs
+1~ Go to youw Vewcew dashboawd
+2~ Nyavigate to youw pwoject
+3~ Cwick on "Depwoyments" and sewect de watest depwoyment
+4~ Cwick on "Functions" to view function wogs
+5~ Wook fow any ewwows in de webhook function
 
-### Verify Environment Variables
-1. In your Vercel project, go to "Settings" → "Environment Variables"
-2. Ensure all required variables are set correctly
-3. Make sure the private key includes the BEGIN/END lines and all newlines are preserved
+### Vewify Enviwonment Vawiabwes
+1~ In youw Vewcew pwoject, go to "Settings" → "Enviwonment Vawiabwes"
+2~ Ensuwe aww wequiwed vawiabwes awe set cowwectwy
+3~ Make suwe de pwivate key incwudes de BEGIN/END winyes and aww nyewwinyes awe pwesewved
 
-### Check GitHub App Configuration
-1. Go to your GitHub App settings
-2. Verify the webhook URL is correct and points to your Vercel deployment
-3. Ensure the App has the necessary permissions:
-   - Repository contents: Read & write
-   - Issues: Read & write
-4. Confirm the App is subscribed to "Issue comment" events
+### Check GitHub App Configuwation
+1~ Go to youw GitHub App settings
+2~ Vewify de webhook UWW is cowwect and points to youw Vewcew depwoyment
+3~ Ensuwe de App has de nyecessawy pewmissions:
+   - Wepositowy contents: Wead & wwite
+   - Issues: Wead & wwite
+4~ Confiwm de App is subscwibed to "Issue comment" events
 
-### Test Webhook Manually
-1. In your GitHub App settings, go to the "Advanced" tab
-2. Find a recent delivery and click "Redeliver" to test again
-3. Check the response status and body for any errors
+### Test Webhook Manyuawwy
+1~ In youw GitHub App settings, go to de "Advanced" tab
+2~ Find a wecent dewivewy and cwick "Wedewivew" to test again
+3~ Check de wesponse status and body fow any ewwows
 
-## Next Steps
+## Nyext Steps
 
-Once you've confirmed the webhook is working correctly:
-1. Install your GitHub App on more repositories
-2. Share the GitHub App with others
-3. Consider adding more features to the uwuification process
+Once you've confiwmed de webhook is wowking cowwectwy:
+1~ Instaww youw GitHub App on mowe wepositowies
+2~ Shawe de GitHub App wid odews
+3~ Considew adding mowe featuwes to de uwuification pwocess
