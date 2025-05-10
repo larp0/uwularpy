@@ -1,81 +1,81 @@
-# UwUlarpy
+# UwUwawpy
 
-A Next.js application that uwuifies markdown files in GitHub repositories when mentioned in issue comments.
+A Nyext.js appwication dat uwuifies mawkdown fiwes in GitHub wepositowies when mentionyed in issue comments.
 
-## Features
+## Featuwes
 
-- **Webhook Handler**: Processes GitHub webhook events for issue comments
-- **Automatic UwUification**: Transforms markdown content while preserving code blocks
-- **Immediate Feedback**: Replies to mentions with "see you, uwuing..." for instant validation
-- **Pull Request Creation**: Creates a PR with uwuified content for review
+- **Webhook Handwew**: Pwocesses GitHub webhook events fow issue comments
+- **Automatic UwUification**: Twansfowms mawkdown content whiwe pwesewving code bwocks
+- **Immediate Feedback**: Wepwies to mentions wid "see you, uwuing..." fow instant vawidation
+- **Puww Wequest Cweation**: Cweates a PW wid uwuified content fow weview
 
 ## Tech Stack
 
-- **Next.js**: Modern React framework with API routes
-- **TypeScript**: Type-safe code for improved maintainability
-- **Tailwind CSS**: Utility-first CSS framework for styling
-- **Octokit**: GitHub API client for JavaScript/TypeScript
+- **Nyext.js**: Modewn Weact fwamewowk wid API woutes
+- **TypeScwipt**: Type-safe code fow impwuvd maintainyabiwity
+- **Taiwwind CSS**: Utiwity-fiwst CSS fwamewowk fow stywing
+- **Octokit**: GitHub API cwient fow JavaScwipt/TypeScwipt
 
-## Getting Started
+## Getting Stawted
 
-### Prerequisites
+### Pwewequisites
 
-- Node.js 18+ and npm
+- Nyode.js 18+ and npm
 - A GitHub account
-- A registered GitHub App with appropriate permissions
+- A wegistewed GitHub App wid appwopwiate pewmissions
 
-### Installation
+### Instawwation
 
-1. Clone the repository:
+1~ Cwonye de wepositowy:
    ```bash
-   git clone https://github.com/larp0/uwularpy.git
-   cd uwularpy
+   git cwonye https://gidub.com/wawp0/uwuwawpy.git
+   cd uwuwawpy
    ```
 
-2. Install dependencies:
+2~ Instaww dependencies:
    ```bash
-   npm install
+   npm instaww
    ```
 
-3. Create a `.env.local` file with your GitHub App credentials:
+3~ Cweate a `.env.wocaw` fiwe wid youw GitHub App cwedentiaws:
    ```
-   APP_ID=your_github_app_id
-   PRIVATE_KEY=your_github_app_private_key
-   WEBHOOK_SECRET=your_github_webhook_secret
+   APP_ID=youw_gidub_app_id
+   PWIVATE_KEY=youw_gidub_app_pwivate_key
+   WEBHOOK_SECWET=youw_gidub_webhook_secwet
    ```
 
-4. Run the development server:
+4~ Wun de devewopment sewvew:
    ```bash
-   npm run dev
+   npm wun dev
    ```
 
-5. Open [http://localhost:3000](http://localhost:3000) to view the application
+5~ Open [http://wocawhost:3000](http://wocawhost:3000) to view de appwication
 
 ## Usage
 
-1. Install the UwUlarpy GitHub App on your repositories
-2. Create or open an issue in your repository
-3. Add a comment that mentions `@uwularpy`
-4. The bot will immediately reply and create a PR with uwuified markdown files
+1~ Instaww de UwUwawpy GitHub App on youw wepositowies
+2~ Cweate ow open an issue in youw wepositowy
+3~ Add a comment dat mentions `@uwuwawpy`
+4~ De bot wiww immediatewy wepwy and cweate a PW wid uwuified mawkdown fiwes
 
-## Deployment
+## Depwoyment
 
-This application can be deployed to any platform that supports Next.js:
+Dis appwication can be depwoyed to any pwatfowm dat suppowts Nyext.js:
 
-- **Vercel**: Recommended for seamless deployment
-- **Netlify**: Great alternative with similar features
-- **Self-hosted**: For complete control over your environment
+- **Vewcew**: Wecommended fow seamwess depwoyment
+- **Nyetwify**: Gweat awtewnyative wid simiwaw featuwes
+- **Sewf-hosted**: Fow compwete contwow uvw youw enviwonment
 
 ## Documentation
 
-For detailed documentation, see [DOCUMENTATION.md](DOCUMENTATION.md)
+Fow detaiwed documentation, see [DOCUMENTATION.md](DOCUMENTATION.md)
 
-## License
+## Wicense
 
 MIT
 
-## Acknowledgements
+## Acknyowwedgements
 
-- [uwuify](https://www.npmjs.com/package/uwuify) - The JavaScript library for uwuifying text
-- [Octokit](https://github.com/octokit) - GitHub API client for JavaScript
-- [Next.js](https://nextjs.org/) - The React framework for production
+- [uwuify](https://www.npmjs.com/package/uwuify) - De JavaScwipt wibwawy fow uwuifying text
+- [Octokit](https://gidub.com/octokit) - GitHub API cwient fow JavaScwipt
+- [Nyext.js](https://nyextjs.owg/) - De Weact fwamewowk fow pwoduction
