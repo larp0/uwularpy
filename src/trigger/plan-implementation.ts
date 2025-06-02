@@ -2,6 +2,35 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import {
+  CRITICAL_ISSUE_TEMPLATE,
+  MISSING_COMPONENT_TEMPLATE,
+  IMPROVEMENT_TEMPLATE,
+  FEATURE_TEMPLATE,
+  MILESTONE_DESCRIPTION_TEMPLATE,
+  COMPLETION_COMMENT_TEMPLATE,
+  INITIAL_REPLY_TEMPLATE
+} from "../templates/issue-templates";
+
+// Define constants for labels and priorities to prevent typos
+export const ISSUE_LABELS = {
+  CRITICAL: 'critical',
+  BUG: 'bug',
+  SECURITY: 'security',
+  ENHANCEMENT: 'enhancement',
+  MISSING_FEATURE: 'missing-feature',
+  IMPROVEMENT: 'improvement',
+  TECHNICAL_DEBT: 'technical-debt',
+  FEATURE: 'feature',
+  INNOVATION: 'innovation'
+} as const;
+
+export const ISSUE_PRIORITIES = {
+  CRITICAL: 'critical',
+  HIGH: 'high',
+  NORMAL: 'normal',
+  FEATURE: 'feature'
+} as const;
 
 // Define interfaces for the plan structure
 interface PlanAnalysis {
@@ -16,12 +45,12 @@ interface IssueTemplate {
   title: string;
   body: string;
   labels: string[];
-  priority: 'critical' | 'high' | 'normal' | 'feature';
+  priority: typeof ISSUE_PRIORITIES[keyof typeof ISSUE_PRIORITIES];
 }
 
 // Export the plan implementation function
 export async function runPlanTask(payload: GitHubContext, ctx: any) {
-  logger.log("Starting comprehensive repository plan task", { payload });
+  logger.info("Starting comprehensive repository plan task", { payload });
   const { owner, repo, issueNumber, installationId } = payload;
 
   try {
@@ -30,32 +59,32 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     
     // Post an immediate reply comment
     await postReplyComment(octokit, owner, repo, issueNumber);
-    logger.log("Posted initial reply comment");
+    logger.info("Posted initial reply comment");
 
     // Phase 1: Repository Ingestion
-    logger.log("Phase 1: Starting repository ingestion");
+    logger.info("Phase 1: Starting repository ingestion");
     const repositoryContent = await ingestRepository(octokit, owner, repo);
     
     // Phase 2: Comprehensive Analysis
-    logger.log("Phase 2: Starting comprehensive analysis");
+    logger.info("Phase 2: Starting comprehensive analysis");
     const analysis = await performComprehensiveAnalysis(repositoryContent);
     
     // Phase 3: Create GitHub Milestone
-    logger.log("Phase 3: Creating GitHub milestone");
+    logger.info("Phase 3: Creating GitHub milestone");
     const milestone = await createProjectMilestone(octokit, owner, repo, analysis);
     
     // Phase 4: Generate Issues
-    logger.log("Phase 4: Generating GitHub issues");
+    logger.info("Phase 4: Generating GitHub issues");
     const issues = await generateIssuesFromAnalysis(analysis, milestone.number);
     
     // Phase 5: Create Issues and Validation
-    logger.log("Phase 5: Creating issues and validation");
+    logger.info("Phase 5: Creating issues and validation");
     const createdIssues = await createGitHubIssues(octokit, owner, repo, issues);
     
     // Post completion comment
     await postCompletionComment(octokit, owner, repo, issueNumber, milestone, createdIssues);
     
-    logger.log("Plan task completed successfully", { 
+    logger.info("Plan task completed successfully", { 
       milestoneId: milestone.id,
       issuesCreated: createdIssues.length 
     });
@@ -106,13 +135,13 @@ async function postReplyComment(octokit: Octokit, owner: string, repo: string, i
     owner,
     repo,
     issue_number: issueNumber,
-    body: "🤖 **Plan Generation Started**\n\nI'm analyzing your repository to create a comprehensive development plan. This will include:\n\n- 📊 Repository analysis\n- 🔍 Missing components identification\n- 🚨 Critical fixes needed\n- 💡 Innovation opportunities\n- 📋 Organized milestone with issues\n\nThis process may take a few minutes..."
+    body: INITIAL_REPLY_TEMPLATE()
   });
 }
 
 // Phase 1: Repository Ingestion
 async function ingestRepository(octokit: Octokit, owner: string, repo: string): Promise<string> {
-  logger.log("Ingesting repository contents");
+  logger.info("Ingesting repository contents");
   
   try {
     // Get repository metadata
@@ -143,7 +172,7 @@ async function ingestRepository(octokit: Octokit, owner: string, repo: string): 
         }
       } catch (error) {
         // File doesn't exist, skip
-        logger.log(`File ${fileName} not found, skipping`);
+        logger.warn(`File ${fileName} not found, skipping`);
       }
     }
     
@@ -210,7 +239,7 @@ ${content.slice(0, 2000)}${content.length > 2000 ? '\n... (truncated)' : ''}
 ${commits.map(commit => `- ${commit.sha.slice(0, 7)}: ${commit.commit.message.split('\n')[0]} (${commit.commit.author?.name})`).join('\n')}
 `;
 
-    logger.log("Repository ingestion completed", { 
+    logger.info("Repository ingestion completed", { 
       summaryLength: repoSummary.length,
       filesAnalyzed: tree.tree.length,
       keyFilesFound: Object.keys(fileContents).length
@@ -226,7 +255,7 @@ ${commits.map(commit => `- ${commit.sha.slice(0, 7)}: ${commit.commit.message.sp
 
 // Phase 2: Comprehensive Analysis using LLM
 async function performComprehensiveAnalysis(repositoryContent: string): Promise<PlanAnalysis> {
-  logger.log("Starting LLM-powered comprehensive analysis");
+  logger.info("Starting LLM-powered comprehensive analysis");
   
   const systemPrompt = `You are an expert software architect and project manager. Analyze the provided repository and generate a comprehensive development plan.
 
@@ -286,7 +315,7 @@ Make each item specific and actionable. Include context about why each item is i
       throw new Error("No analysis content received from OpenAI");
     }
 
-    logger.log("Received analysis from OpenAI", { 
+    logger.info("Received analysis from OpenAI", { 
       contentLength: analysisText.length 
     });
 
@@ -300,7 +329,7 @@ Make each item specific and actionable. Include context about why each item is i
       throw new Error("Invalid analysis structure received from LLM");
     }
 
-    logger.log("Analysis parsing completed", {
+    logger.info("Analysis parsing completed", {
       missingComponents: analysis.missingComponents.length,
       criticalFixes: analysis.criticalFixes.length,
       requiredImprovements: analysis.requiredImprovements.length,
@@ -342,37 +371,19 @@ Make each item specific and actionable. Include context about why each item is i
       ]
     };
 
-    logger.log("Using fallback analysis due to LLM failure");
+    logger.warn("Using fallback analysis due to LLM failure");
     return fallbackAnalysis;
   }
 }
 
 // Phase 3: Create GitHub Milestone
 async function createProjectMilestone(octokit: Octokit, owner: string, repo: string, analysis: PlanAnalysis): Promise<any> {
-  logger.log("Creating GitHub milestone");
+  logger.info("Creating GitHub milestone");
 
   const currentDate = new Date();
   const dueDate = new Date(currentDate.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
-  const milestoneDescription = `# AI-Generated Development Plan - ${currentDate.toISOString().split('T')[0]}
-
-## Repository Overview
-${analysis.repositoryOverview}
-
-## Critical Fixes (ASAP) 🚨
-${analysis.criticalFixes.map((fix, index) => `${index + 1}. ${fix}`).join('\n')}
-
-## Missing Components 📋
-${analysis.missingComponents.map((component, index) => `${index + 1}. ${component}`).join('\n')}
-
-## Required Improvements 🔧
-${analysis.requiredImprovements.map((improvement, index) => `${index + 1}. ${improvement}`).join('\n')}
-
-## Innovation Ideas 💡
-${analysis.innovationIdeas.map((idea, index) => `${index + 1}. ${idea}`).join('\n')}
-
----
-*This milestone was generated automatically by AI analysis. All items have been broken down into individual GitHub issues for tracking and implementation.*`;
+  const milestoneDescription = MILESTONE_DESCRIPTION_TEMPLATE(analysis, currentDate);
 
   try {
     const { data: milestone } = await octokit.issues.createMilestone({
@@ -383,7 +394,7 @@ ${analysis.innovationIdeas.map((idea, index) => `${index + 1}. ${idea}`).join('\
       due_on: dueDate.toISOString()
     });
 
-    logger.log("Milestone created successfully", { milestoneId: milestone.id });
+    logger.info("Milestone created successfully", { milestoneId: milestone.id });
     return milestone;
 
   } catch (error) {
@@ -394,7 +405,7 @@ ${analysis.innovationIdeas.map((idea, index) => `${index + 1}. ${idea}`).join('\
 
 // Phase 4: Generate Issues from Analysis
 function generateIssuesFromAnalysis(analysis: PlanAnalysis, milestoneNumber: number): IssueTemplate[] {
-  logger.log("Generating issues from analysis");
+  logger.info("Generating issues from analysis");
 
   const issues: IssueTemplate[] = [];
 
@@ -402,29 +413,9 @@ function generateIssuesFromAnalysis(analysis: PlanAnalysis, milestoneNumber: num
   analysis.criticalFixes.forEach((fix, index) => {
     issues.push({
       title: `[CRITICAL] ${fix.slice(0, 60)}${fix.length > 60 ? '...' : ''}`,
-      body: `## 🚨 Critical Fix Required
-
-**Description:** ${fix}
-
-## Priority
-This is a **critical issue** that requires immediate attention.
-
-## Implementation Guidance
-- Assess the current state and identify the root cause
-- Research best practices for addressing this type of issue
-- Implement the fix with proper testing
-- Document the solution for future reference
-
-## Validation Criteria
-- [ ] Issue has been thoroughly investigated
-- [ ] Solution implemented and tested
-- [ ] No regression issues introduced
-- [ ] Documentation updated if necessary
-
-## Related
-Part of AI Development Plan Milestone #${milestoneNumber}`,
-      labels: ['critical', 'bug', 'security'],
-      priority: 'critical'
+      body: CRITICAL_ISSUE_TEMPLATE(fix, milestoneNumber),
+      labels: [ISSUE_LABELS.CRITICAL, ISSUE_LABELS.BUG, ISSUE_LABELS.SECURITY],
+      priority: ISSUE_PRIORITIES.CRITICAL
     });
   });
 
@@ -432,27 +423,9 @@ Part of AI Development Plan Milestone #${milestoneNumber}`,
   analysis.missingComponents.forEach((component, index) => {
     issues.push({
       title: `[MISSING] ${component.slice(0, 60)}${component.length > 60 ? '...' : ''}`,
-      body: `## 📋 Missing Component
-
-**Description:** ${component}
-
-## Implementation Guidance
-- Research existing solutions and best practices
-- Design the component architecture
-- Implement with proper integration
-- Add comprehensive testing
-- Update documentation
-
-## Validation Criteria
-- [ ] Component successfully implemented
-- [ ] Integration tests passing
-- [ ] Documentation complete
-- [ ] Code review completed
-
-## Related
-Part of AI Development Plan Milestone #${milestoneNumber}`,
-      labels: ['enhancement', 'missing-feature'],
-      priority: 'high'
+      body: MISSING_COMPONENT_TEMPLATE(component, milestoneNumber),
+      labels: [ISSUE_LABELS.ENHANCEMENT, ISSUE_LABELS.MISSING_FEATURE],
+      priority: ISSUE_PRIORITIES.HIGH
     });
   });
 
@@ -460,27 +433,9 @@ Part of AI Development Plan Milestone #${milestoneNumber}`,
   analysis.requiredImprovements.forEach((improvement, index) => {
     issues.push({
       title: `[IMPROVEMENT] ${improvement.slice(0, 60)}${improvement.length > 60 ? '...' : ''}`,
-      body: `## 🔧 Code Improvement
-
-**Description:** ${improvement}
-
-## Implementation Guidance
-- Analyze current implementation
-- Identify specific areas for improvement
-- Implement incremental changes
-- Ensure backward compatibility
-- Add or update tests as needed
-
-## Validation Criteria
-- [ ] Current state analyzed and documented
-- [ ] Improvements implemented
-- [ ] Tests updated and passing
-- [ ] Performance impact assessed
-
-## Related
-Part of AI Development Plan Milestone #${milestoneNumber}`,
-      labels: ['improvement', 'technical-debt'],
-      priority: 'normal'
+      body: IMPROVEMENT_TEMPLATE(improvement, milestoneNumber),
+      labels: [ISSUE_LABELS.IMPROVEMENT, ISSUE_LABELS.TECHNICAL_DEBT],
+      priority: ISSUE_PRIORITIES.NORMAL
     });
   });
 
@@ -488,35 +443,16 @@ Part of AI Development Plan Milestone #${milestoneNumber}`,
   analysis.innovationIdeas.forEach((idea, index) => {
     issues.push({
       title: `[FEATURE] ${idea.slice(0, 60)}${idea.length > 60 ? '...' : ''}`,
-      body: `## 💡 Innovation Feature
-
-**Description:** ${idea}
-
-## Implementation Guidance
-- Research market and user needs
-- Design user experience and technical architecture
-- Create development roadmap
-- Implement MVP version
-- Gather feedback and iterate
-
-## Validation Criteria
-- [ ] Feature requirements defined
-- [ ] Technical design completed
-- [ ] MVP implementation finished
-- [ ] User feedback collected
-- [ ] Documentation and tests complete
-
-## Related
-Part of AI Development Plan Milestone #${milestoneNumber}`,
-      labels: ['feature', 'innovation', 'enhancement'],
-      priority: 'feature'
+      body: FEATURE_TEMPLATE(idea, milestoneNumber),
+      labels: [ISSUE_LABELS.FEATURE, ISSUE_LABELS.INNOVATION, ISSUE_LABELS.ENHANCEMENT],
+      priority: ISSUE_PRIORITIES.FEATURE
     });
   });
 
-  logger.log("Issue generation completed", { 
+  logger.info("Issue generation completed", { 
     totalIssues: issues.length,
-    criticalIssues: issues.filter(i => i.priority === 'critical').length,
-    featureIssues: issues.filter(i => i.priority === 'feature').length
+    criticalIssues: issues.filter(i => i.priority === ISSUE_PRIORITIES.CRITICAL).length,
+    featureIssues: issues.filter(i => i.priority === ISSUE_PRIORITIES.FEATURE).length
   });
 
   return issues;
@@ -524,7 +460,7 @@ Part of AI Development Plan Milestone #${milestoneNumber}`,
 
 // Phase 5: Create GitHub Issues
 async function createGitHubIssues(octokit: Octokit, owner: string, repo: string, issues: IssueTemplate[]): Promise<any[]> {
-  logger.log("Creating GitHub issues", { count: issues.length });
+  logger.info("Creating GitHub issues", { count: issues.length });
 
   const createdIssues = [];
   const MAX_ISSUES = 20; // Limit to prevent overwhelming the repository
@@ -544,7 +480,7 @@ async function createGitHubIssues(octokit: Octokit, owner: string, repo: string,
       });
 
       createdIssues.push(issue);
-      logger.log(`Created issue ${i + 1}/${issuesToCreate.length}`, { 
+      logger.info(`Created issue ${i + 1}/${issuesToCreate.length}`, { 
         issueNumber: issue.number, 
         title: issue.title 
       });
@@ -561,7 +497,7 @@ async function createGitHubIssues(octokit: Octokit, owner: string, repo: string,
     }
   }
 
-  logger.log("Issue creation completed", { 
+  logger.info("Issue creation completed", { 
     requested: issuesToCreate.length,
     created: createdIssues.length 
   });
@@ -580,45 +516,13 @@ async function postCompletionComment(
 ): Promise<void> {
   
   const priorityDistribution = {
-    critical: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === 'critical')).length,
-    high: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === 'missing-feature')).length,
-    normal: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === 'improvement')).length,
-    feature: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === 'innovation')).length
+    critical: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.CRITICAL)).length,
+    high: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.MISSING_FEATURE)).length,
+    normal: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.IMPROVEMENT)).length,
+    feature: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.INNOVATION)).length
   };
 
-  const completionComment = `## ✅ Development Plan Generated Successfully!
-
-I've completed a comprehensive analysis of your repository and created a structured development plan.
-
-### 📊 Plan Summary
-
-| Type | Count | Priority Distribution |
-|------|-------|-----------------------|
-| **Milestones** | 1 | N/A |
-| **Issues** | ${createdIssues.length} | Critical: ${priorityDistribution.critical} • High: ${priorityDistribution.high} • Normal: ${priorityDistribution.normal} • Feature: ${priorityDistribution.feature} |
-
-### 🎯 Created Resources
-
-**Milestone:** [${milestone.title}](${milestone.html_url})
-- Due date: ${new Date(milestone.due_on).toLocaleDateString()}
-- Contains the complete diagnostic report
-
-**Issues Created:**
-${createdIssues.slice(0, 10).map(issue => `- [#${issue.number}](${issue.html_url}) ${issue.title}`).join('\n')}
-${createdIssues.length > 10 ? `\n...and ${createdIssues.length - 10} more issues` : ''}
-
-### 🚀 Next Steps
-
-1. **Review the milestone** to understand the complete analysis
-2. **Prioritize critical issues** (marked with 🚨) for immediate attention
-3. **Assign team members** to specific issues based on expertise
-4. **Break down large issues** into smaller tasks if needed
-5. **Track progress** using the milestone view
-
-The plan is designed to be comprehensive yet actionable. Each issue includes implementation guidance and validation criteria to help your development process.
-
----
-*Generated by @uwularpy AI Development Planning System*`;
+  const completionComment = COMPLETION_COMMENT_TEMPLATE(milestone, createdIssues, priorityDistribution);
 
   await octokit.issues.createComment({
     owner,
@@ -627,5 +531,5 @@ The plan is designed to be comprehensive yet actionable. Each issue includes imp
     body: completionComment
   });
 
-  logger.log("Posted completion comment");
+  logger.info("Posted completion comment");
 }
