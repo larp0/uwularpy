@@ -262,7 +262,7 @@ Make each item specific and actionable. Include context about why each item is i
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4",
+        model: "gpt-4.1-nano",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
