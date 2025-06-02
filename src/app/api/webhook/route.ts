@@ -59,6 +59,15 @@ export async function POST(request: NextRequest) {
                 runId: runHandle.id 
               }, { status: 200 });
             }
+            // If the text after mention is 'plan', trigger the plan task
+            if (textAfterMention.trim().toLowerCase() === 'plan') {
+              const runHandle = await triggerTask("plan-task", context);
+              console.log(`Triggered plan task, run ID: ${runHandle.id}`);
+              return NextResponse.json({ 
+                message: 'Plan task triggered', 
+                runId: runHandle.id 
+              }, { status: 200 });
+            }
             // Otherwise, trigger the Codex task
             const runHandle = await triggerTask("codex-task", { ...context });
             console.log(`Triggered codex-task, run ID: ${runHandle.id}`);

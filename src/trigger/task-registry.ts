@@ -38,3 +38,13 @@ export const fullCodeReviewTask = task({
     return await runFullCodeReviewTask(payload, ctx);
   },
 });
+
+export const planTask = task({
+  id: "plan-task",
+  machine: "large-2x",
+  maxDuration: 1200, // 20 minutes for comprehensive repository analysis
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runPlanTask } = await import("./plan-implementation");
+    return await runPlanTask(payload, ctx);
+  },
+});
