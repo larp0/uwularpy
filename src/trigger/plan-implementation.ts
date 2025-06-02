@@ -12,6 +12,49 @@ import {
   INITIAL_REPLY_TEMPLATE
 } from "../templates/issue-templates";
 
+// Define interfaces for GitHub objects to improve type safety
+interface GitHubMilestone {
+  id: number;
+  number: number;
+  title: string;
+  description: string | null;
+  state: 'open' | 'closed';
+  url: string;
+  html_url: string;
+  due_on: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GitHubIssue {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  state: 'open' | 'closed';
+  url: string;
+  html_url: string;
+  labels: GitHubLabel[];
+  assignees: GitHubUser[];
+  milestone: GitHubMilestone | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GitHubLabel {
+  id: number;
+  name: string;
+  color: string;
+  description: string | null;
+}
+
+interface GitHubUser {
+  id: number;
+  login: string;
+  avatar_url: string;
+  html_url: string;
+}
+
 // Define constants for labels and priorities to prevent typos
 export const ISSUE_LABELS = {
   CRITICAL: 'critical',
@@ -119,14 +162,31 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
 async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
   const appId = process.env.GITHUB_APP_ID;
   const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  
   if (!appId || !privateKey) {
+    logger.error("GitHub App credentials missing", { 
+      hasAppId: !!appId, 
+      hasPrivateKey: !!privateKey 
+    });
     throw new Error("GitHub App credentials not found in environment variables");
   }
 
-  return new Octokit({
-    authStrategy: createAppAuth,
-    auth: { appId: Number(appId), privateKey, installationId }
-  });
+  try {
+    return new Octokit({
+      authStrategy: createAppAuth,
+      auth: { 
+        appId: Number(appId), 
+        privateKey, 
+        installationId 
+      }
+    });
+  } catch (error) {
+    logger.error("Failed to create authenticated Octokit instance", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      installationId 
+    });
+    throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Post immediate reply comment
@@ -281,17 +341,23 @@ Make each item specific and actionable. Include context about why each item is i
   const userPrompt = `Analyze this repository:\n\n${repositoryContent}`;
 
   try {
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      logger.error("OpenAI API key not found in environment variables");
+      throw new Error("OpenAI API key not configured");
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Authorization": `Bearer ${openaiApiKey}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4.1-nano",
+        model: "gpt-4",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -305,18 +371,29 @@ Make each item specific and actionable. Include context about why each item is i
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unable to read error response');
+      logger.error("OpenAI API request failed", { 
+        status: response.status, 
+        statusText: response.statusText,
+        hasErrorText: !!errorText
+      });
       throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
-    const analysisText = data.choices[0]?.message?.content;
+    const analysisText = data.choices?.[0]?.message?.content;
 
     if (!analysisText) {
+      logger.error("No analysis content received from OpenAI", { 
+        hasChoices: !!data.choices,
+        choicesLength: data.choices?.length || 0
+      });
       throw new Error("No analysis content received from OpenAI");
     }
 
     logger.info("Received analysis from OpenAI", { 
-      contentLength: analysisText.length 
+      contentLength: analysisText.length,
+      modelUsed: "gpt-4"
     });
 
     // Parse JSON response
@@ -326,6 +403,12 @@ Make each item specific and actionable. Include context about why each item is i
     // Validate analysis structure
     if (!analysis.missingComponents || !analysis.criticalFixes || 
         !analysis.requiredImprovements || !analysis.innovationIdeas) {
+      logger.error("Invalid analysis structure received from LLM", {
+        hasMissingComponents: !!analysis.missingComponents,
+        hasCriticalFixes: !!analysis.criticalFixes,
+        hasRequiredImprovements: !!analysis.requiredImprovements,
+        hasInnovationIdeas: !!analysis.innovationIdeas
+      });
       throw new Error("Invalid analysis structure received from LLM");
     }
 
@@ -339,7 +422,10 @@ Make each item specific and actionable. Include context about why each item is i
     return analysis;
 
   } catch (error) {
-    logger.error("Error during comprehensive analysis", { error });
+    logger.error("Error during comprehensive analysis", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      errorType: error instanceof Error ? error.constructor.name : typeof error
+    });
     
     // Fallback analysis if LLM fails
     const fallbackAnalysis: PlanAnalysis = {
@@ -371,13 +457,20 @@ Make each item specific and actionable. Include context about why each item is i
       ]
     };
 
-    logger.warn("Using fallback analysis due to LLM failure");
+    logger.warn("Using fallback analysis due to LLM failure", {
+      fallbackItemsCount: {
+        missingComponents: fallbackAnalysis.missingComponents.length,
+        criticalFixes: fallbackAnalysis.criticalFixes.length,
+        requiredImprovements: fallbackAnalysis.requiredImprovements.length,
+        innovationIdeas: fallbackAnalysis.innovationIdeas.length
+      }
+    });
     return fallbackAnalysis;
   }
 }
 
 // Phase 3: Create GitHub Milestone
-async function createProjectMilestone(octokit: Octokit, owner: string, repo: string, analysis: PlanAnalysis): Promise<any> {
+async function createProjectMilestone(octokit: Octokit, owner: string, repo: string, analysis: PlanAnalysis): Promise<GitHubMilestone> {
   logger.info("Creating GitHub milestone");
 
   const currentDate = new Date();
@@ -395,7 +488,7 @@ async function createProjectMilestone(octokit: Octokit, owner: string, repo: str
     });
 
     logger.info("Milestone created successfully", { milestoneId: milestone.id });
-    return milestone;
+    return milestone as GitHubMilestone;
 
   } catch (error) {
     logger.error("Error creating milestone", { error });
@@ -459,10 +552,10 @@ function generateIssuesFromAnalysis(analysis: PlanAnalysis, milestoneNumber: num
 }
 
 // Phase 5: Create GitHub Issues
-async function createGitHubIssues(octokit: Octokit, owner: string, repo: string, issues: IssueTemplate[]): Promise<any[]> {
+async function createGitHubIssues(octokit: Octokit, owner: string, repo: string, issues: IssueTemplate[]): Promise<GitHubIssue[]> {
   logger.info("Creating GitHub issues", { count: issues.length });
 
-  const createdIssues = [];
+  const createdIssues: GitHubIssue[] = [];
   const MAX_ISSUES = 20; // Limit to prevent overwhelming the repository
 
   const issuesToCreate = issues.slice(0, MAX_ISSUES);
@@ -479,7 +572,7 @@ async function createGitHubIssues(octokit: Octokit, owner: string, repo: string,
         labels: issueTemplate.labels
       });
 
-      createdIssues.push(issue);
+      createdIssues.push(issue as GitHubIssue);
       logger.info(`Created issue ${i + 1}/${issuesToCreate.length}`, { 
         issueNumber: issue.number, 
         title: issue.title 
@@ -511,15 +604,15 @@ async function postCompletionComment(
   owner: string, 
   repo: string, 
   issueNumber: number,
-  milestone: any,
-  createdIssues: any[]
+  milestone: GitHubMilestone,
+  createdIssues: GitHubIssue[]
 ): Promise<void> {
   
   const priorityDistribution = {
-    critical: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.CRITICAL)).length,
-    high: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.MISSING_FEATURE)).length,
-    normal: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.IMPROVEMENT)).length,
-    feature: createdIssues.filter(issue => issue.labels.some((label: any) => label.name === ISSUE_LABELS.INNOVATION)).length
+    critical: createdIssues.filter(issue => issue.labels.some((label: GitHubLabel) => label.name === ISSUE_LABELS.CRITICAL)).length,
+    high: createdIssues.filter(issue => issue.labels.some((label: GitHubLabel) => label.name === ISSUE_LABELS.MISSING_FEATURE)).length,
+    normal: createdIssues.filter(issue => issue.labels.some((label: GitHubLabel) => label.name === ISSUE_LABELS.IMPROVEMENT)).length,
+    feature: createdIssues.filter(issue => issue.labels.some((label: GitHubLabel) => label.name === ISSUE_LABELS.INNOVATION)).length
   };
 
   const completionComment = COMPLETION_COMMENT_TEMPLATE(milestone, createdIssues, priorityDistribution);
