@@ -67,7 +67,7 @@ childProcess.execSync = function(command, options) {
         
         // Verify the script contains echo and pipe to codex
         if (scriptFile.content.includes('echo') && 
-            scriptFile.content.includes('bunx @openai/codex') && 
+            scriptFile.content.includes('npx @openai/codex') && 
             scriptFile.content.includes('|')) {
           console.log('✅ Script correctly pipes echo output to codex');
           
@@ -101,7 +101,7 @@ try {
   // Create shell script
   const scriptContent = `#!/bin/bash
 export OPENAI_API_KEY=test_key
-echo '${testPrompt.replace(/'/g, "'\\''")}' | bunx @openai/codex --approval-mode full-auto
+echo '${testPrompt.replace(/'/g, "'\\''")}' | npx @openai/codex --approval-mode full-auto
 `;
   const scriptPath = path.join(tempDir, "run_codex.sh");
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });

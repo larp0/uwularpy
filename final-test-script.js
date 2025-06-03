@@ -23,7 +23,7 @@ try {
   console.log(`Created prompt file at ${promptFile}`);
   
   // Create the command exactly as it will be used in production
-  const shellCmd = `/bin/bash -c "bunx @openai/codex --approval-mode full-auto < ${promptFile}"`;
+  const shellCmd = `/bin/bash -c "npx @openai/codex --approval-mode full-auto < ${promptFile}"`;
   console.log(`Shell command: ${shellCmd}`);
   
   console.log('\n🚀 EXECUTING SHELL COMMAND...');
@@ -54,18 +54,18 @@ try {
     // Try a few different variations to help debug production issues
     console.log('\n🔄 TRYING ALTERNATIVE APPROACHES...');
     
-    // Try with just bunx
+    // Try with just npx
     try {
-      console.log('Attempting direct bunx execution...');
-      child_process.execSync(`bunx --version`, { encoding: 'utf-8' });
-      console.log('✅ bunx is available');
+      console.log('Attempting direct npx execution...');
+      child_process.execSync(`npx --version`, { encoding: 'utf-8' });
+      console.log('✅ npx is available');
     } catch (e) {
-      console.error('❌ bunx is not available');
+      console.error('❌ npx is not available');
     }
     
     // Try with npx @openai/codex
     try {
-      console.log('Attempting with npx instead of bunx...');
+      console.log('Attempting with npx instead of npx...');
       const npxCmd = `/bin/bash -c "echo '${formattedPrompt}' | npx @openai/codex --approval-mode full-auto"`;
       child_process.execSync(npxCmd, {
         cwd: tempDir,
@@ -85,7 +85,7 @@ try {
   console.log(`- Shell: ${process.env.SHELL || 'unknown'}`);
   
   console.log('\n💡 RECOMMENDATIONS:');
-  console.log('1. Make sure bunx is installed and available in the production environment');
+  console.log('1. Make sure npx is installed and available in the production environment');
   console.log('2. Verify the OPENAI_API_KEY is correctly set');
   console.log('3. Check if bash is available and supports redirection');
   console.log('4. Try using a direct echo pipe if shell redirection fails');

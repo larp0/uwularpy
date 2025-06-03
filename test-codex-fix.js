@@ -153,7 +153,7 @@ The logging function has been added to the beginning of app.js. It will output "
     childProcess.execSync = function(command, options) {
       console.log(`COMMAND: ${command}`);
       
-      // When bunx @openai/codex is called, return our mock response
+      // When npx @openai/codex is called, return our mock response
       if (command.includes('@openai/codex')) {
         console.log(`MOCK: Intercepted Codex CLI call`);
         return mockCodexResponse;

@@ -83,7 +83,7 @@ export async function codexRepository(
         logger.log("Executing Codex CLI with file input", { promptPath: promptFilePath });
         
         // Use /bin/bash explicitly to ensure proper redirection support
-        const shellCmd = `/bin/bash -c "bunx @openai/codex --approval-mode full-auto < ${promptFilePath}"`;
+        const shellCmd = `/bin/bash -c "npx @openai/codex --approval-mode full-auto < ${promptFilePath}"`;
         logger.log("Shell command", { command: shellCmd });
         
         stdoutData = execSync(
