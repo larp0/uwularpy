@@ -120,7 +120,7 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   logger.log("Prepared diff for review", { diffSize });
 
   // Construct OpenAI request payload
-  const systemMsg = "You are a code reviewer and top notch bug resolver. THINK DEEPER AND FIND BUGS, Review the code changes below for quality, security, and style issues. Roast devs a bit tho, be creative.";
+  const systemMsg = "You are a code reviewer and top notch bug resolver. Create a comprehensive mermaid diagram of the whole repo and another one of what was changed in this PR. THINK DEEPER AND FIND BUGS, Review the code changes below for quality, security, and style issues. Roast devs a bit tho, be creative. Try to create a mermaid diagram that would vizualize tech debt and steps to improve it.";
   const userMsg = `DIFF:\n${diff}\n\nORIGINAL FILES:\n${JSON.stringify(originalFiles)}`;
   const requestBody = {
     model: "gpt-4.1-mini",
@@ -143,7 +143,7 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
     
     // Set up the fetch request with a 60-second timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
     
     try {
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
