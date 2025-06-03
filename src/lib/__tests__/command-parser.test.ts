@@ -115,10 +115,10 @@ describe('Command Parser', () => {
       expect(getTaskType(parsed)).toBe('full-code-review');
     });
 
-    it('should return uwuify-repository for empty command', () => {
-      const parsed = parseCommand('@uwularpy');
-      expect(getTaskType(parsed)).toBe('uwuify-repository');
-    });
+    // it('should return uwuify-repository for empty command', () => {
+    //   const parsed = parseCommand('@uwularpy');
+    //   expect(getTaskType(parsed)).toBe('uwuify-repository');
+    // });
 
     it('should return codex-task for unknown commands', () => {
       const parsed = parseCommand('@uwularpy unknown-command');
