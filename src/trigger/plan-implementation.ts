@@ -2,6 +2,10 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { GitHubContext } from "../services/task-types";
 import { createAuthenticatedOctokit } from "./github-auth";
+import { 
+  MAX_REPO_ANALYSIS_FILES,
+  checkRateLimit
+} from "./workflow-constants";
 import {
   CRITICAL_ISSUE_TEMPLATE,
   MISSING_COMPONENT_TEMPLATE,
@@ -183,6 +187,13 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
   logger.info("Starting repository plan task - creating milestone only", { payload });
   const { owner, repo, issueNumber, installationId } = payload;
 
+  // Rate limiting for expensive plan operations
+  const rateLimitKey = `plan-creation-${owner}-${repo}`;
+  if (!checkRateLimit(rateLimitKey, 5)) { // Allow max 5 plan creations per minute per repo
+    logger.warn("Plan creation rate limited", { owner, repo });
+    throw new Error("Rate limit exceeded for plan creation");
+  }
+
   try {
     // Create authenticated Octokit
     const octokit = await createAuthenticatedOctokit(installationId);
@@ -301,6 +312,17 @@ async function ingestRepository(octokit: Octokit, owner: string, repo: string): 
       config.retryDelay,
       "Repository tree fetch"
     );
+    
+    // DoS protection: Limit the number of files analyzed
+    if (tree.tree.length > MAX_REPO_ANALYSIS_FILES) {
+      logger.warn(`Repository has ${tree.tree.length} files, limiting analysis to ${MAX_REPO_ANALYSIS_FILES} for performance`, {
+        owner,
+        repo,
+        totalFiles: tree.tree.length
+      });
+      // Truncate to prevent excessive processing
+      tree.tree = tree.tree.slice(0, MAX_REPO_ANALYSIS_FILES);
+    }
     
     // Get key files content in parallel (limited to prevent rate limiting)
     const keyFiles = ['README.md', 'package.json', 'requirements.txt', 'Cargo.toml', 'go.mod', 'setup.py'];

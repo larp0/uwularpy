@@ -2,7 +2,15 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { GitHubContext } from "../services/task-types";
 import { createAuthenticatedOctokit } from "./github-auth";
-import { BOT_USERNAME, REVIEW_COMMAND, TITLE_SIMILARITY_THRESHOLD } from "./workflow-constants";
+import { 
+  BOT_USERNAME, 
+  REVIEW_COMMAND, 
+  TITLE_SIMILARITY_THRESHOLD,
+  checkRateLimit,
+  validateInputLength,
+  MAX_PR_TITLE_LENGTH,
+  MAX_PR_PROCESSING_TIME
+} from "./workflow-constants";
 
 // Define interfaces for GitHub objects
 interface GitHubPullRequest {
@@ -53,6 +61,18 @@ export async function runPRMonitoringTask(payload: GitHubContext, ctx: any) {
   logger.info("Starting PR monitoring task - checking for copilot assignment", { payload });
   const { owner, repo, issueNumber: prNumber, installationId } = payload;
 
+  // Rate limiting for DoS protection
+  const rateLimitKey = `pr-monitoring-${owner}-${repo}`;
+  if (!checkRateLimit(rateLimitKey, 20)) { // Allow max 20 PR monitors per minute per repo
+    logger.warn("PR monitoring rate limited", { owner, repo, prNumber });
+    return { success: false, error: "Rate limit exceeded" };
+  }
+
+  // Set processing timeout
+  const processingTimeout = setTimeout(() => {
+    logger.error("PR monitoring timeout exceeded", { owner, repo, prNumber });
+  }, MAX_PR_PROCESSING_TIME);
+
   try {
     // Create authenticated Octokit
     const octokit = await createAuthenticatedOctokit(installationId);
@@ -64,6 +84,13 @@ export async function runPRMonitoringTask(payload: GitHubContext, ctx: any) {
       pull_number: prNumber
     });
 
+    // Validate PR title length for security
+    if (!validateInputLength(pullRequest.title, MAX_PR_TITLE_LENGTH, 'PR title')) {
+      logger.warn("PR title validation failed", { prNumber, title: pullRequest.title });
+      clearTimeout(processingTimeout);
+      return { success: false, error: "PR title too long" };
+    }
+
     // Check if this PR is related to a copilot-assigned issue
     const relatedIssue = await findRelatedCopilotIssue(octokit, owner, repo, pullRequest);
     
@@ -72,6 +99,7 @@ export async function runPRMonitoringTask(payload: GitHubContext, ctx: any) {
         prNumber,
         prTitle: pullRequest.title
       });
+      clearTimeout(processingTimeout);
       return { success: true, message: "PR not related to copilot workflow" };
     }
 
@@ -86,6 +114,8 @@ export async function runPRMonitoringTask(payload: GitHubContext, ctx: any) {
       relatedIssueNumber: relatedIssue.number,
       prTitle: pullRequest.title
     });
+    
+    clearTimeout(processingTimeout);
     
     return { 
       success: true, 
@@ -102,6 +132,7 @@ export async function runPRMonitoringTask(payload: GitHubContext, ctx: any) {
     };
     
   } catch (error) {
+    clearTimeout(processingTimeout);
     logger.error("Error in PR monitoring task", { error });
     
     // Don't post error comments for PR monitoring to avoid spam

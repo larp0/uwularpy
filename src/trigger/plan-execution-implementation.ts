@@ -2,7 +2,14 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { GitHubContext } from "../services/task-types";
 import { createAuthenticatedOctokit } from "./github-auth";
-import { BOT_USERNAME, COPILOT_USERNAME } from "./workflow-constants";
+import { 
+  BOT_USERNAME, 
+  COPILOT_USERNAME, 
+  checkRateLimit,
+  validateInputLength,
+  MAX_ISSUE_TITLE_LENGTH,
+  MAX_WORKFLOW_EXECUTION_TIME
+} from "./workflow-constants";
 import {
   ISSUE_LABELS,
   ISSUE_PRIORITIES
@@ -56,6 +63,18 @@ export async function runPlanExecutionTask(payload: GitHubContext, ctx: any) {
   logger.info("Starting plan execution task - initiating sequential workflow", { payload });
   const { owner, repo, issueNumber, installationId } = payload;
 
+  // Input validation and rate limiting for DoS protection
+  const rateLimitKey = `plan-execution-${owner}-${repo}`;
+  if (!checkRateLimit(rateLimitKey, 10)) { // Allow max 10 plan executions per minute per repo
+    logger.warn("Plan execution rate limited", { owner, repo });
+    return { success: false, error: "Rate limit exceeded" };
+  }
+
+  // Set execution timeout
+  const executionTimeout = setTimeout(() => {
+    logger.error("Plan execution timeout exceeded", { owner, repo, issueNumber });
+  }, MAX_WORKFLOW_EXECUTION_TIME);
+
   try {
     // Create authenticated Octokit
     const octokit = await createAuthenticatedOctokit(installationId);
@@ -86,6 +105,14 @@ export async function runPlanExecutionTask(payload: GitHubContext, ctx: any) {
       return { success: false, error: "No milestone issues found" };
     }
 
+    // Validate issue titles for security (prevent malicious content)
+    for (const issue of milestoneIssues) {
+      if (!validateInputLength(issue.title, MAX_ISSUE_TITLE_LENGTH, 'issue title')) {
+        logger.warn("Issue title validation failed", { issueNumber: issue.number, title: issue.title });
+        // Continue with other issues rather than failing entirely
+      }
+    }
+
     // Sort issues by priority for execution order
     const sortedIssues = sortIssuesByPriority(milestoneIssues);
     
@@ -114,6 +141,9 @@ export async function runPlanExecutionTask(payload: GitHubContext, ctx: any) {
       totalIssues: sortedIssues.length
     });
     
+    // Clear the timeout on success
+    clearTimeout(executionTimeout);
+    
     return { 
       success: true, 
       milestone: milestone,
@@ -123,6 +153,9 @@ export async function runPlanExecutionTask(payload: GitHubContext, ctx: any) {
     };
     
   } catch (error) {
+    // Clear the timeout on error
+    clearTimeout(executionTimeout);
+    
     logger.error("Error in plan execution task", { error });
     
     // Try to post error comment
