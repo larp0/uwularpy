@@ -113,6 +113,16 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
   // Normalize command for comparison
   const normalizedCommand = parsedCommand.command.toLowerCase().trim();
   
+  // Check for approval patterns first
+  if (isApprovalCommand(normalizedCommand)) {
+    return 'plan-approval-task';
+  }
+  
+  // Check for execution confirmation patterns
+  if (isExecutionConfirmationCommand(normalizedCommand)) {
+    return 'plan-execution-task';
+  }
+  
   // Check for specific commands with aliases
   switch (normalizedCommand) {
     case 'r':
@@ -126,4 +136,42 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
       // For any other command, trigger codex-task
       return 'codex-task';
   }
+}
+
+/**
+ * Checks if a command is an approval command for milestone decomposition
+ * @param command The normalized command to check
+ * @returns true if the command is an approval
+ */
+function isApprovalCommand(command: string): boolean {
+  const approvalPatterns = [
+    'y',
+    'yes', 
+    'ok',
+    'okay',
+    'approve',
+    'i approve'
+  ];
+  
+  return approvalPatterns.includes(command);
+}
+
+/**
+ * Checks if a command is an execution confirmation command
+ * @param command The normalized command to check
+ * @returns true if the command is an execution confirmation
+ */
+function isExecutionConfirmationCommand(command: string): boolean {
+  const confirmationPatterns = [
+    'go',
+    'proceed',
+    'continue',
+    'start',
+    'begin',
+    'lfg',
+    'let\'s go',
+    'do it'
+  ];
+  
+  return confirmationPatterns.includes(command);
 }

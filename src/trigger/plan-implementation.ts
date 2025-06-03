@@ -1,7 +1,11 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import { createAuthenticatedOctokit } from "./github-auth";
+import { 
+  MAX_REPO_ANALYSIS_FILES,
+  checkRateLimit
+} from "./workflow-constants";
 import {
   CRITICAL_ISSUE_TEMPLATE,
   MISSING_COMPONENT_TEMPLATE,
@@ -9,7 +13,8 @@ import {
   FEATURE_TEMPLATE,
   MILESTONE_DESCRIPTION_TEMPLATE,
   COMPLETION_COMMENT_TEMPLATE,
-  INITIAL_REPLY_TEMPLATE
+  INITIAL_REPLY_TEMPLATE,
+  MILESTONE_CREATED_TEMPLATE
 } from "../templates/issue-templates";
 
 // Define interfaces for GitHub objects to improve type safety
@@ -179,8 +184,15 @@ interface IssueTemplate {
 
 // Export the plan implementation function
 export async function runPlanTask(payload: GitHubContext, ctx: any) {
-  logger.info("Starting comprehensive repository plan task", { payload });
+  logger.info("Starting repository plan task - creating milestone only", { payload });
   const { owner, repo, issueNumber, installationId } = payload;
+
+  // Rate limiting for expensive plan operations
+  const rateLimitKey = `plan-creation-${owner}-${repo}`;
+  if (!checkRateLimit(rateLimitKey, 5)) { // Allow max 5 plan creations per minute per repo
+    logger.warn("Plan creation rate limited", { owner, repo });
+    throw new Error("Rate limit exceeded for plan creation");
+  }
 
   try {
     // Create authenticated Octokit
@@ -198,30 +210,22 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     logger.info("Phase 2: Starting comprehensive analysis");
     const analysis = await performComprehensiveAnalysis(repositoryContent);
     
-    // Phase 3: Create GitHub Milestone
+    // Phase 3: Create GitHub Milestone ONLY
     logger.info("Phase 3: Creating GitHub milestone");
     const milestone = await createProjectMilestone(octokit, owner, repo, analysis);
     
-    // Phase 4: Generate Issues
-    logger.info("Phase 4: Generating GitHub issues");
-    const issues = await generateIssuesFromAnalysis(analysis, milestone.number);
+    // Post milestone URL as response (sole response per requirements)
+    await postMilestoneUrlComment(octokit, owner, repo, issueNumber, milestone);
     
-    // Phase 5: Create Issues and Validation
-    logger.info("Phase 5: Creating issues and validation");
-    const createdIssues = await createGitHubIssues(octokit, owner, repo, issues);
-    
-    // Post completion comment
-    await postCompletionComment(octokit, owner, repo, issueNumber, milestone, createdIssues);
-    
-    logger.info("Plan task completed successfully", { 
+    logger.info("Plan task completed - milestone created", { 
       milestoneId: milestone.id,
-      issuesCreated: createdIssues.length 
+      milestoneUrl: milestone.html_url
     });
     
     return { 
       success: true, 
       milestone: milestone,
-      issuesCreated: createdIssues.length 
+      phase: 'milestone_created'
     };
     
   } catch (error) {
@@ -245,82 +249,6 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
 }
 
 // Create authenticated Octokit instance with enhanced security validation
-async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
-  // Validate installation ID
-  if (!installationId || typeof installationId !== 'number' || installationId <= 0) {
-    logger.error("Invalid installation ID provided", { installationId });
-    throw new Error("Invalid installation ID");
-  }
-
-  // Get and validate environment variables
-  const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_PRIVATE_KEY;
-  
-  // Enhanced validation without logging sensitive data
-  if (!appId || typeof appId !== 'string') {
-    logger.error("GITHUB_APP_ID environment variable missing or invalid");
-    throw new Error("GitHub App ID not configured");
-  }
-  
-  if (!privateKey || typeof privateKey !== 'string') {
-    logger.error("GITHUB_PRIVATE_KEY environment variable missing or invalid");
-    throw new Error("GitHub Private Key not configured");
-  }
-  
-  // Validate App ID format
-  const appIdNumber = parseInt(appId, 10);
-  if (isNaN(appIdNumber) || appIdNumber <= 0) {
-    logger.error("GITHUB_APP_ID must be a valid positive number");
-    throw new Error("Invalid GitHub App ID format");
-  }
-  
-  // Process private key securely
-  const processedPrivateKey = privateKey.replace(/\\n/g, '\n');
-  
-  // Basic validation of private key format (without logging the key)
-  if (!processedPrivateKey.includes('-----BEGIN') || !processedPrivateKey.includes('-----END')) {
-    logger.error("GITHUB_PRIVATE_KEY does not appear to be in valid PEM format");
-    throw new Error("Invalid private key format");
-  }
-
-  try {
-    const octokit = new Octokit({
-      authStrategy: createAppAuth,
-      auth: { 
-        appId: appIdNumber, 
-        privateKey: processedPrivateKey, 
-        installationId 
-      }
-    });
-    
-    // Test authentication by making a simple API call
-    await retryWithBackoff(
-      async () => {
-        await octokit.apps.getAuthenticated();
-      },
-      2, // Limited retries for auth test
-      1000,
-      "Authentication test"
-    );
-    
-    logger.info("Successfully created authenticated Octokit instance", { 
-      installationId,
-      appId: appIdNumber
-    });
-    
-    return octokit;
-    
-  } catch (error) {
-    logger.error("Failed to create or test authenticated Octokit instance", { 
-      error: error instanceof Error ? error.message : 'Unknown error',
-      installationId,
-      hasAppId: !!appId,
-      hasPrivateKey: !!privateKey
-    });
-    throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
-}
-
 // Post immediate reply comment
 async function postReplyComment(octokit: Octokit, owner: string, repo: string, issueNumber: number): Promise<void> {
   await octokit.issues.createComment({
@@ -360,18 +288,41 @@ async function ingestRepository(octokit: Octokit, owner: string, repo: string): 
       )
     ]);
     
-    // Get repository structure using recursive tree
+    // Get the commit SHA of the default branch for tree access
+    const { data: defaultBranchData } = await retryWithBackoff(
+      () => octokit.repos.getBranch({
+        owner,
+        repo,
+        branch: repoData.data.default_branch
+      }),
+      config.retryAttempts,
+      config.retryDelay,
+      "Default branch commit fetch"
+    );
+    
+    // Get repository structure using recursive tree with proper commit SHA
     const { data: tree } = await retryWithBackoff(
       () => octokit.git.getTree({
         owner,
         repo,
-        tree_sha: repoData.data.default_branch,
+        tree_sha: defaultBranchData.commit.sha,
         recursive: 'true'
       }),
       config.retryAttempts,
       config.retryDelay,
       "Repository tree fetch"
     );
+    
+    // DoS protection: Limit the number of files analyzed
+    if (tree.tree.length > MAX_REPO_ANALYSIS_FILES) {
+      logger.warn(`Repository has ${tree.tree.length} files, limiting analysis to ${MAX_REPO_ANALYSIS_FILES} for performance`, {
+        owner,
+        repo,
+        totalFiles: tree.tree.length
+      });
+      // Truncate to prevent excessive processing
+      tree.tree = tree.tree.slice(0, MAX_REPO_ANALYSIS_FILES);
+    }
     
     // Get key files content in parallel (limited to prevent rate limiting)
     const keyFiles = ['README.md', 'package.json', 'requirements.txt', 'Cargo.toml', 'go.mod', 'setup.py'];
@@ -898,6 +849,26 @@ async function createGitHubIssues(octokit: Octokit, owner: string, repo: string,
   });
 
   return createdIssues;
+}
+
+// Post milestone URL comment (sole response per requirements)
+async function postMilestoneUrlComment(
+  octokit: Octokit, 
+  owner: string, 
+  repo: string, 
+  issueNumber: number,
+  milestone: GitHubMilestone
+): Promise<void> {
+  const milestoneUrl = milestone.html_url;
+  
+  await octokit.issues.createComment({
+    owner,
+    repo,
+    issue_number: issueNumber,
+    body: MILESTONE_CREATED_TEMPLATE(milestoneUrl)
+  });
+
+  logger.info("Posted milestone URL comment", { milestoneUrl });
 }
 
 // Post completion comment

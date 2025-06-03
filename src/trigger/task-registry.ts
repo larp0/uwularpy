@@ -48,3 +48,43 @@ export const planTask = task({
     return await runPlanTask(payload, ctx);
   },
 });
+
+export const planApprovalTask = task({
+  id: "plan-approval-task",
+  machine: "large-2x",
+  maxDuration: 600, // 10 minutes for milestone decomposition
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runPlanApprovalTask } = await import("./plan-approval-implementation");
+    return await runPlanApprovalTask(payload, ctx);
+  },
+});
+
+export const planExecutionTask = task({
+  id: "plan-execution-task",
+  machine: "large-2x",
+  maxDuration: 300, // 5 minutes for workflow initiation
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runPlanExecutionTask } = await import("./plan-execution-implementation");
+    return await runPlanExecutionTask(payload, ctx);
+  },
+});
+
+export const prMonitoringTask = task({
+  id: "pr-monitoring-task",
+  machine: "small-1x",
+  maxDuration: 120, // 2 minutes for PR monitoring
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runPRMonitoringTask } = await import("./pr-monitoring-implementation");
+    return await runPRMonitoringTask(payload, ctx);
+  },
+});
+
+export const prMergeProgressionTask = task({
+  id: "pr-merge-progression-task", 
+  machine: "small-1x",
+  maxDuration: 300, // 5 minutes for PR merge progression
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runPRMergeProgressionTask } = await import("./pr-merge-progression-implementation");
+    return await runPRMergeProgressionTask(payload, ctx);
+  },
+});

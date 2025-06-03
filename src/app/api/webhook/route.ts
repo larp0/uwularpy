@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     
     const event = request.headers.get('x-github-event');
     
-    // Only process issue_comment events
+    // Process issue_comment events for user commands
     if (event === 'issue_comment' && body.action === 'created' && body.comment?.user?.login !== 'uwularpy') {
       // Validate required fields
       if (!body.comment?.body || !body.issue?.number || !body.repository?.name || !body.repository?.owner?.login) {
@@ -98,6 +98,57 @@ export async function POST(request: NextRequest) {
             error: 'Error triggering task',
             message: error instanceof Error ? error.message : 'Unknown error'
           }, { status: 500 });
+        }
+      }
+    }
+    
+    // Process pull_request events for automated workflow management
+    if (event === 'pull_request' && body.installation?.id) {
+      const prNumber = body.pull_request?.number;
+      const prTitle = body.pull_request?.title;
+      const prBody = body.pull_request?.body;
+      const repo = body.repository?.name;
+      const owner = body.repository?.owner?.login;
+      
+      if (prNumber && repo && owner) {
+        try {
+          // Handle different PR actions
+          if (body.action === 'opened') {
+            // Trigger the PR monitoring task for new PRs
+            const context: GitHubContext = {
+              owner,
+              repo,
+              issueNumber: prNumber,
+              requester: body.pull_request?.user?.login || 'unknown',
+              installationId: body.installation.id,
+              requestTimestamp: new Date().toISOString(),
+              requestId: generateRequestId(),
+              message: `PR opened: ${prTitle}`,
+            };
+
+            const runHandle = await triggerTask('pr-monitoring-task', context);
+            console.log(`Triggered PR monitoring task for PR #${prNumber}, run ID: ${runHandle.id}`);
+            
+          } else if (body.action === 'closed' && body.pull_request?.merged) {
+            // Trigger the PR merge progression task for merged PRs
+            const context: GitHubContext = {
+              owner,
+              repo,
+              issueNumber: prNumber,
+              requester: body.pull_request?.user?.login || 'unknown',
+              installationId: body.installation.id,
+              requestTimestamp: new Date().toISOString(),
+              requestId: generateRequestId(),
+              message: `PR merged: ${prTitle}`,
+            };
+
+            const runHandle = await triggerTask('pr-merge-progression-task', context);
+            console.log(`Triggered PR merge progression task for PR #${prNumber}, run ID: ${runHandle.id}`);
+          }
+          
+        } catch (error) {
+          console.error('Error triggering PR task:', error instanceof Error ? error.message : 'Unknown error');
+          // Don't fail the webhook for PR task errors
         }
       }
     }
