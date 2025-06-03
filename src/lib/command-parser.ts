@@ -1,10 +1,13 @@
 // Utility functions for parsing commands from GitHub comments
+import { classifyCommandIntent, intentToTaskType } from './ai-command-parser';
 
 export interface ParsedCommand {
   command: string;
   fullText: string;
   isMention: boolean;
   userQuery?: string; // Added to capture user-specific problems/queries
+  aiIntent?: string; // AI-classified intent
+  aiConfidence?: number; // AI confidence score
 }
 
 /**
@@ -77,7 +80,10 @@ export function parseCommand(comment: string): ParsedCommand {
   // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
   // Updated regex to handle edge cases better
   const match = sanitizedComment.match(/@(uwularpy|l)\s+([\s\S]*?)(?=@\w+|$)/i);
-  const textAfterMention = match ? match[2].trim() : '';
+  let textAfterMention = match ? match[2].trim() : '';
+  
+  // Additional cleanup to handle any hidden characters or extra whitespace
+  textAfterMention = textAfterMention.replace(/\s+/g, ' ').trim();
 
   // Handle edge case where mention is at the end with no command
   if (!textAfterMention && /@(uwularpy|l)\s*$/i.test(sanitizedComment)) {
@@ -109,22 +115,66 @@ export function parseCommand(comment: string): ParsedCommand {
 
 /**
  * Determines the task type based on the parsed command
- * Enhanced with better validation and edge case handling
+ * Now uses AI to understand intent, typos, and multiple languages
  * @param parsedCommand The parsed command object
+ * @param context Optional context for better AI classification
  * @returns The task type to trigger
  */
-export function getTaskType(parsedCommand: ParsedCommand): string | null {
+export async function getTaskType(
+  parsedCommand: ParsedCommand,
+  context?: { recentMilestone?: boolean; lastTaskType?: string }
+): Promise<string | null> {
   if (!parsedCommand || !parsedCommand.isMention) {
     return null;
   }
 
-  // If no command text, trigger uwuify repository
+  // If no command text, return null
   if (!parsedCommand.command) {
     return null;
   }
 
-  // Normalize command for comparison
+  try {
+    // Use AI to classify the intent
+    const classification = await classifyCommandIntent(parsedCommand.command, context);
+    
+    // Store AI results in the parsed command for reference
+    parsedCommand.aiIntent = classification.intent;
+    parsedCommand.aiConfidence = classification.confidence;
+    
+    console.log('[getTaskType] AI Classification:', {
+      command: parsedCommand.command,
+      intent: classification.intent,
+      confidence: classification.confidence,
+      language: classification.language
+    });
+    
+    // Map intent to task type
+    const taskType = intentToTaskType(classification.intent);
+    
+    if (taskType) {
+      console.log(`[getTaskType] Mapped intent "${classification.intent}" to task: ${taskType}`);
+      return taskType;
+    }
+    
+    // Fallback to codex-task if no mapping
+    return 'codex-task';
+    
+  } catch (error) {
+    console.error('[getTaskType] AI classification failed, using fallback', error);
+    
+    // Fallback to the old pattern-based system
+    return getTaskTypeFallback(parsedCommand);
+  }
+}
+
+/**
+ * Fallback task type determination using patterns
+ * Used when AI classification fails
+ */
+function getTaskTypeFallback(parsedCommand: ParsedCommand): string | null {
   const normalizedCommand = parsedCommand.command.toLowerCase().trim();
+  
+  console.log('[getTaskTypeFallback] Using pattern matching for:', normalizedCommand);
   
   // Check for approval patterns first
   if (isApprovalCommand(normalizedCommand)) {
@@ -136,7 +186,7 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
     return 'plan-refinement-task';
   }
   
-  // Check for cancellation patterns  
+  // Check for cancellation patterns
   if (isCancellationCommand(normalizedCommand)) {
     return 'plan-cancellation-task';
   }
@@ -169,14 +219,25 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
 function isApprovalCommand(command: string): boolean {
   const approvalPatterns = [
     'y',
-    'yes', 
+    'yes',
     'ok',
     'okay',
     'approve',
     'i approve'
   ];
   
-  return approvalPatterns.includes(command);
+  // Debug logging
+  console.log('[isApprovalCommand] Checking command:', command);
+  console.log('[isApprovalCommand] Command length:', command.length);
+  console.log('[isApprovalCommand] Command char codes:', command.split('').map(c => c.charCodeAt(0)));
+  
+  // Check if command starts with any approval pattern (handles edge cases)
+  const isApproval = approvalPatterns.includes(command) ||
+                     approvalPatterns.some(pattern => command.startsWith(pattern + ' '));
+  
+  console.log('[isApprovalCommand] Is approval?', isApproval);
+  
+  return isApproval;
 }
 
 /**

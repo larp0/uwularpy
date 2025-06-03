@@ -63,6 +63,8 @@ export async function POST(request: NextRequest) {
       
       if (parsedCommand.isMention) {
         console.log(`Mention detected in issue #${issueNumber} by ${requester}`);
+        console.log(`Raw comment: "${comment}"`);
+        console.log(`Parsed command:`, parsedCommand);
 
         try {
           // Prepare the context for the task
@@ -77,19 +79,24 @@ export async function POST(request: NextRequest) {
             message: parsedCommand.fullText,
           };
 
-          // Determine which task to trigger
-          const taskType = getTaskType(parsedCommand);
+          // Determine which task to trigger (now uses AI)
+          const taskType = await getTaskType(parsedCommand, {
+            recentMilestone: true // You could enhance this by checking if a milestone was recently created
+          });
+          console.log(`Determined task type: ${taskType}`);
           
           if (taskType) {
             const runHandle = await triggerTask(taskType, context);
             console.log(`Triggered ${taskType} task, run ID: ${runHandle.id}`);
-            return NextResponse.json({ 
-              message: `${taskType} task triggered`, 
-              runId: runHandle.id 
+            return NextResponse.json({
+              message: `${taskType} task triggered`,
+              runId: runHandle.id,
+              aiIntent: parsedCommand.aiIntent,
+              aiConfidence: parsedCommand.aiConfidence
             }, { status: 200 });
           } else {
-            return NextResponse.json({ 
-              message: 'No action required' 
+            return NextResponse.json({
+              message: 'No action required'
             }, { status: 200 });
           }
         } catch (error) {

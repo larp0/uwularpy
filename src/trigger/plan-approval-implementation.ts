@@ -206,12 +206,12 @@ async function findMostRecentMilestone(
   issueNumber: number
 ): Promise<GitHubMilestone | null> {
   try {
-    // Get recent comments to find milestone URL
+    // Get recent comments to find milestone URL (increased to 200 for long threads)
     const { data: comments } = await octokit.issues.listComments({
       owner,
       repo,
       issue_number: issueNumber,
-      per_page: 20,
+      per_page: 200,
       sort: 'created',
       direction: 'desc'
     });
