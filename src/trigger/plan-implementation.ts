@@ -55,6 +55,92 @@ interface GitHubUser {
   html_url: string;
 }
 
+// Define constants for configuration
+const MAX_ISSUES_DEFAULT = 20;
+const MAX_CONTENT_LENGTH = 8000; // Prevent token limit issues
+const OPENAI_TIMEOUT_MS = 120000; // 2 minutes
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
+
+// Configuration interface for better maintainability
+interface PlanConfig {
+  maxIssues: number;
+  maxContentLength: number;
+  openaiTimeout: number;
+  retryAttempts: number;
+  retryDelay: number;
+}
+
+// Get configuration with fallbacks
+function getPlanConfig(): PlanConfig {
+  return {
+    maxIssues: parseInt(process.env.PLAN_MAX_ISSUES || MAX_ISSUES_DEFAULT.toString(), 10),
+    maxContentLength: parseInt(process.env.PLAN_MAX_CONTENT_LENGTH || MAX_CONTENT_LENGTH.toString(), 10),
+    openaiTimeout: parseInt(process.env.OPENAI_TIMEOUT_MS || OPENAI_TIMEOUT_MS.toString(), 10),
+    retryAttempts: parseInt(process.env.RETRY_ATTEMPTS || RETRY_ATTEMPTS.toString(), 10),
+    retryDelay: parseInt(process.env.RETRY_DELAY_MS || RETRY_DELAY_MS.toString(), 10)
+  };
+}
+
+/**
+ * Utility function for retrying operations with exponential backoff
+ */
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxAttempts: number,
+  baseDelay: number,
+  context: string
+): Promise<T> {
+  let lastError: Error | undefined;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      
+      if (attempt === maxAttempts) {
+        logger.error(`${context} failed after ${maxAttempts} attempts`, {
+          error: lastError.message,
+          attempts: maxAttempts
+        });
+        throw lastError;
+      }
+      
+      const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+      logger.warn(`${context} attempt ${attempt} failed, retrying in ${delay}ms`, {
+        error: lastError.message,
+        attempt,
+        maxAttempts,
+        nextDelay: delay
+      });
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError || new Error(`${context} failed after all attempts`);
+}
+
+/**
+ * Truncate content to prevent token limit issues
+ */
+function truncateContent(content: string, maxLength: number): string {
+  if (!content || typeof content !== 'string') return '';
+  
+  if (content.length <= maxLength) return content;
+  
+  const truncated = content.slice(0, maxLength);
+  const lastNewline = truncated.lastIndexOf('\n');
+  
+  // Try to break at a natural line boundary
+  if (lastNewline > maxLength * 0.8) {
+    return truncated.slice(0, lastNewline) + '\n\n... (content truncated to prevent token limits)';
+  }
+  
+  return truncated + '\n\n... (content truncated to prevent token limits)';
+}
+
 // Define constants for labels and priorities to prevent typos
 export const ISSUE_LABELS = {
   CRITICAL: 'critical',
@@ -158,32 +244,78 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
   }
 }
 
-// Create authenticated Octokit instance
+// Create authenticated Octokit instance with enhanced security validation
 async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
+  // Validate installation ID
+  if (!installationId || typeof installationId !== 'number' || installationId <= 0) {
+    logger.error("Invalid installation ID provided", { installationId });
+    throw new Error("Invalid installation ID");
+  }
+
+  // Get and validate environment variables
   const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const privateKey = process.env.GITHUB_PRIVATE_KEY;
   
-  if (!appId || !privateKey) {
-    logger.error("GitHub App credentials missing", { 
-      hasAppId: !!appId, 
-      hasPrivateKey: !!privateKey 
-    });
-    throw new Error("GitHub App credentials not found in environment variables");
+  // Enhanced validation without logging sensitive data
+  if (!appId || typeof appId !== 'string') {
+    logger.error("GITHUB_APP_ID environment variable missing or invalid");
+    throw new Error("GitHub App ID not configured");
+  }
+  
+  if (!privateKey || typeof privateKey !== 'string') {
+    logger.error("GITHUB_PRIVATE_KEY environment variable missing or invalid");
+    throw new Error("GitHub Private Key not configured");
+  }
+  
+  // Validate App ID format
+  const appIdNumber = parseInt(appId, 10);
+  if (isNaN(appIdNumber) || appIdNumber <= 0) {
+    logger.error("GITHUB_APP_ID must be a valid positive number");
+    throw new Error("Invalid GitHub App ID format");
+  }
+  
+  // Process private key securely
+  const processedPrivateKey = privateKey.replace(/\\n/g, '\n');
+  
+  // Basic validation of private key format (without logging the key)
+  if (!processedPrivateKey.includes('-----BEGIN') || !processedPrivateKey.includes('-----END')) {
+    logger.error("GITHUB_PRIVATE_KEY does not appear to be in valid PEM format");
+    throw new Error("Invalid private key format");
   }
 
   try {
-    return new Octokit({
+    const octokit = new Octokit({
       authStrategy: createAppAuth,
       auth: { 
-        appId: Number(appId), 
-        privateKey, 
+        appId: appIdNumber, 
+        privateKey: processedPrivateKey, 
         installationId 
       }
     });
+    
+    // Test authentication by making a simple API call
+    await retryWithBackoff(
+      async () => {
+        await octokit.apps.getAuthenticated();
+      },
+      2, // Limited retries for auth test
+      1000,
+      "Authentication test"
+    );
+    
+    logger.info("Successfully created authenticated Octokit instance", { 
+      installationId,
+      appId: appIdNumber
+    });
+    
+    return octokit;
+    
   } catch (error) {
-    logger.error("Failed to create authenticated Octokit instance", { 
+    logger.error("Failed to create or test authenticated Octokit instance", { 
       error: error instanceof Error ? error.message : 'Unknown error',
-      installationId 
+      installationId,
+      hasAppId: !!appId,
+      hasPrivateKey: !!privateKey
     });
     throw new Error(`Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -199,56 +331,131 @@ async function postReplyComment(octokit: Octokit, owner: string, repo: string, i
   });
 }
 
-// Phase 1: Repository Ingestion
+// Phase 1: Repository Ingestion with improved performance and error handling
 async function ingestRepository(octokit: Octokit, owner: string, repo: string): Promise<string> {
   logger.info("Ingesting repository contents");
   
+  const config = getPlanConfig();
+  
   try {
-    // Get repository metadata
-    const { data: repoData } = await octokit.repos.get({ owner, repo });
+    // Parallelize initial API calls for better performance
+    const [repoData, languages, commits] = await Promise.all([
+      retryWithBackoff(
+        () => octokit.repos.get({ owner, repo }),
+        config.retryAttempts,
+        config.retryDelay,
+        "Repository metadata fetch"
+      ),
+      retryWithBackoff(
+        () => octokit.repos.listLanguages({ owner, repo }),
+        config.retryAttempts,
+        config.retryDelay,
+        "Languages fetch"
+      ),
+      retryWithBackoff(
+        () => octokit.repos.listCommits({ owner, repo, per_page: 10 }),
+        config.retryAttempts,
+        config.retryDelay,
+        "Recent commits fetch"
+      )
+    ]);
     
     // Get repository structure using recursive tree
-    const { data: tree } = await octokit.git.getTree({
-      owner,
-      repo,
-      tree_sha: repoData.default_branch,
-      recursive: 'true'
-    });
+    const { data: tree } = await retryWithBackoff(
+      () => octokit.git.getTree({
+        owner,
+        repo,
+        tree_sha: repoData.data.default_branch,
+        recursive: 'true'
+      }),
+      config.retryAttempts,
+      config.retryDelay,
+      "Repository tree fetch"
+    );
     
-    // Get key files content (README, package.json, etc.)
+    // Get key files content in parallel (limited to prevent rate limiting)
     const keyFiles = ['README.md', 'package.json', 'requirements.txt', 'Cargo.toml', 'go.mod', 'setup.py'];
     const fileContents: { [key: string]: string } = {};
     
-    for (const fileName of keyFiles) {
-      try {
-        const { data: fileData } = await octokit.repos.getContent({
-          owner,
-          repo,
-          path: fileName
-        });
-        
-        if ('content' in fileData && fileData.content) {
-          fileContents[fileName] = Buffer.from(fileData.content, 'base64').toString('utf-8');
+    // Process files in batches to avoid overwhelming the API
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < keyFiles.length; i += BATCH_SIZE) {
+      const batch = keyFiles.slice(i, i + BATCH_SIZE);
+      
+      const batchPromises = batch.map(async (fileName) => {
+        try {
+          const { data: fileData } = await retryWithBackoff(
+            () => octokit.repos.getContent({ owner, repo, path: fileName }),
+            2, // Fewer retries for individual files
+            config.retryDelay,
+            `File fetch: ${fileName}`
+          );
+          
+          if ('content' in fileData && fileData.content) {
+            const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
+            return { fileName, content };
+          }
+          return null;
+        } catch (error) {
+          logger.warn(`File ${fileName} not found or inaccessible, skipping`, {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          return null;
         }
-      } catch (error) {
-        // File doesn't exist, skip
-        logger.warn(`File ${fileName} not found, skipping`);
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      batchResults.forEach(result => {
+        if (result) {
+          fileContents[result.fileName] = result.content;
+        }
+      });
+      
+      // Small delay between batches to be respectful of rate limits
+      if (i + BATCH_SIZE < keyFiles.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
     
-    // Get recent commits for activity analysis
-    const { data: commits } = await octokit.repos.listCommits({
-      owner,
-      repo,
-      per_page: 10
+    // Build comprehensive repository summary with content truncation
+    const repoSummary = buildRepositorySummary(
+      repoData.data,
+      tree.tree,
+      languages.data,
+      commits.data,
+      fileContents,
+      config.maxContentLength
+    );
+    
+    logger.info("Repository ingestion completed", { 
+      summaryLength: repoSummary.length,
+      filesAnalyzed: tree.tree.length,
+      keyFilesFound: Object.keys(fileContents).length
     });
     
-    // Get languages
-    const { data: languages } = await octokit.repos.listLanguages({ owner, repo });
+    return repoSummary;
     
-    // Build comprehensive repository summary
-    const repoSummary = `
-# Repository Analysis for ${owner}/${repo}
+  } catch (error) {
+    logger.error("Error during repository ingestion", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      owner,
+      repo
+    });
+    throw new Error(`Repository ingestion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+// Helper function to build repository summary with content management
+function buildRepositorySummary(
+  repoData: any,
+  treeItems: any[],
+  languages: any,
+  commits: any[],
+  fileContents: { [key: string]: string },
+  maxContentLength: number
+): string {
+  const summary = `
+# Repository Analysis for ${repoData.owner.login}/${repoData.name}
 
 ## Repository Metadata
 - **Name**: ${repoData.name}
@@ -264,16 +471,16 @@ async function ingestRepository(octokit: Octokit, owner: string, repo: string): 
 ## Languages Distribution
 ${Object.entries(languages).map(([lang, bytes]) => `- ${lang}: ${bytes} bytes`).join('\n')}
 
-## Repository Structure (${tree.tree.length} files total)
-${tree.tree
-  .filter(item => item.type === 'tree') // Only directories
+## Repository Structure (${treeItems.length} files total)
+${treeItems
+  .filter((item: any) => item.type === 'tree') // Only directories
   .slice(0, 20) // Limit to prevent overwhelming LLM
-  .map(item => `- 📁 ${item.path}`)
+  .map((item: any) => `- 📁 ${item.path}`)
   .join('\n')}
 
 ### Key Files Found:
-${tree.tree
-  .filter(item => item.type === 'blob' && (
+${treeItems
+  .filter((item: any) => item.type === 'blob' && (
     item.path!.endsWith('.md') ||
     item.path!.endsWith('.json') ||
     item.path!.endsWith('.yml') ||
@@ -283,7 +490,7 @@ ${tree.tree
     item.path!.includes('LICENSE')
   ))
   .slice(0, 30)
-  .map(item => `- 📄 ${item.path}`)
+  .map((item: any) => `- 📄 ${item.path}`)
   .join('\n')}
 
 ## Key File Contents
@@ -291,31 +498,22 @@ ${tree.tree
 ${Object.entries(fileContents).map(([fileName, content]) => `
 ### ${fileName}
 \`\`\`
-${content.slice(0, 2000)}${content.length > 2000 ? '\n... (truncated)' : ''}
+${truncateContent(content, Math.floor(maxContentLength / Object.keys(fileContents).length))}
 \`\`\`
 `).join('\n')}
 
 ## Recent Commits
-${commits.map(commit => `- ${commit.sha.slice(0, 7)}: ${commit.commit.message.split('\n')[0]} (${commit.commit.author?.name})`).join('\n')}
+${commits.map((commit: any) => `- ${commit.sha.slice(0, 7)}: ${commit.commit.message.split('\n')[0]} (${commit.commit.author?.name})`).join('\n')}
 `;
 
-    logger.info("Repository ingestion completed", { 
-      summaryLength: repoSummary.length,
-      filesAnalyzed: tree.tree.length,
-      keyFilesFound: Object.keys(fileContents).length
-    });
-    
-    return repoSummary;
-    
-  } catch (error) {
-    logger.error("Error during repository ingestion", { error });
-    throw new Error(`Repository ingestion failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+  return truncateContent(summary, maxContentLength);
 }
 
-// Phase 2: Comprehensive Analysis using LLM
+// Phase 2: Comprehensive Analysis using LLM with enhanced security and reliability
 async function performComprehensiveAnalysis(repositoryContent: string): Promise<PlanAnalysis> {
   logger.info("Starting LLM-powered comprehensive analysis");
+  
+  const config = getPlanConfig();
   
   const systemPrompt = `You are an expert software architect and project manager. Analyze the provided repository and generate a comprehensive development plan.
 
@@ -338,81 +536,126 @@ Return your analysis in the following JSON format:
 
 Make each item specific and actionable. Include context about why each item is important.`;
 
-  const userPrompt = `Analyze this repository:\n\n${repositoryContent}`;
+  // Truncate repository content to prevent token limits
+  const truncatedContent = truncateContent(repositoryContent, config.maxContentLength);
+  const userPrompt = `Analyze this repository:\n\n${truncatedContent}`;
 
   try {
+    // Validate OpenAI API key without logging it
     const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      logger.error("OpenAI API key not found in environment variables");
+    if (!openaiApiKey || typeof openaiApiKey !== 'string') {
+      logger.error("OpenAI API key not found or invalid in environment variables");
       throw new Error("OpenAI API key not configured");
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+    // Perform OpenAI API call with retries
+    const analysisText = await retryWithBackoff(
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), config.openaiTimeout);
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
-        "Content-Type": "application/json"
+        try {
+          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openaiApiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              model: "gpt-4",
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+              ],
+              max_tokens: 2000,
+              temperature: 0.7
+            }),
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unable to read error response');
+            
+            // Log error without exposing sensitive information
+            logger.error("OpenAI API request failed", { 
+              status: response.status, 
+              statusText: response.statusText,
+              hasErrorText: !!errorText,
+              // Don't log the actual error text as it might contain sensitive info
+              contentLength: userPrompt.length
+            });
+            
+            if (response.status === 429) {
+              throw new Error("Rate limit exceeded - will retry");
+            } else if (response.status >= 500) {
+              throw new Error("Server error - will retry");
+            } else {
+              throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+            }
+          }
+
+          const data = await response.json();
+          const content = data.choices?.[0]?.message?.content;
+
+          if (!content) {
+            logger.error("No analysis content received from OpenAI", { 
+              hasChoices: !!data.choices,
+              choicesLength: data.choices?.length || 0
+            });
+            throw new Error("No analysis content received from OpenAI");
+          }
+
+          return content;
+          
+        } finally {
+          clearTimeout(timeoutId);
+        }
       },
-      body: JSON.stringify({
-        model: "gpt-4",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        max_tokens: 2000,
-        temperature: 0.7
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unable to read error response');
-      logger.error("OpenAI API request failed", { 
-        status: response.status, 
-        statusText: response.statusText,
-        hasErrorText: !!errorText
-      });
-      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const analysisText = data.choices?.[0]?.message?.content;
-
-    if (!analysisText) {
-      logger.error("No analysis content received from OpenAI", { 
-        hasChoices: !!data.choices,
-        choicesLength: data.choices?.length || 0
-      });
-      throw new Error("No analysis content received from OpenAI");
-    }
+      config.retryAttempts,
+      config.retryDelay,
+      "OpenAI API call"
+    );
 
     logger.info("Received analysis from OpenAI", { 
       contentLength: analysisText.length,
       modelUsed: "gpt-4"
     });
 
-    // Parse JSON response
-    const cleanedText = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const analysis: PlanAnalysis = JSON.parse(cleanedText);
-
-    // Validate analysis structure
-    if (!analysis.missingComponents || !analysis.criticalFixes || 
-        !analysis.requiredImprovements || !analysis.innovationIdeas) {
-      logger.error("Invalid analysis structure received from LLM", {
-        hasMissingComponents: !!analysis.missingComponents,
-        hasCriticalFixes: !!analysis.criticalFixes,
-        hasRequiredImprovements: !!analysis.requiredImprovements,
-        hasInnovationIdeas: !!analysis.innovationIdeas
+    // Parse JSON response with error handling
+    let analysis: PlanAnalysis;
+    try {
+      const cleanedText = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      analysis = JSON.parse(cleanedText);
+    } catch (parseError) {
+      logger.error("Failed to parse OpenAI response as JSON", {
+        parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error',
+        responseLength: analysisText.length
       });
-      throw new Error("Invalid analysis structure received from LLM");
+      throw new Error("Invalid JSON response from OpenAI");
     }
 
-    logger.info("Analysis parsing completed", {
+    // Validate analysis structure
+    const requiredFields = ['missingComponents', 'criticalFixes', 'requiredImprovements', 'innovationIdeas'];
+    const missingFields = requiredFields.filter(field => !analysis[field as keyof PlanAnalysis]);
+    
+    if (missingFields.length > 0) {
+      logger.error("Invalid analysis structure received from LLM", {
+        missingFields,
+        hasRepositoryOverview: !!analysis.repositoryOverview
+      });
+      throw new Error(`Invalid analysis structure: missing fields ${missingFields.join(', ')}`);
+    }
+
+    // Validate that fields are arrays
+    requiredFields.forEach(field => {
+      if (!Array.isArray(analysis[field as keyof PlanAnalysis])) {
+        throw new Error(`Field ${field} must be an array`);
+      }
+    });
+
+    logger.info("Analysis parsing completed successfully", {
       missingComponents: analysis.missingComponents.length,
       criticalFixes: analysis.criticalFixes.length,
       requiredImprovements: analysis.requiredImprovements.length,
@@ -427,37 +670,40 @@ Make each item specific and actionable. Include context about why each item is i
       errorType: error instanceof Error ? error.constructor.name : typeof error
     });
     
-    // Fallback analysis if LLM fails
+    // Enhanced fallback analysis
     const fallbackAnalysis: PlanAnalysis = {
-      repositoryOverview: "Repository analysis failed, but basic structure assessment indicates this is an active project that could benefit from systematic improvements.",
+      repositoryOverview: "Analysis temporarily unavailable due to LLM service issues. Using fallback assessment - this repository appears to be an active project that would benefit from systematic improvements and comprehensive review.",
       missingComponents: [
         "Comprehensive documentation and setup instructions",
-        "Automated testing infrastructure",
-        "CI/CD pipeline configuration",
-        "Security scanning and vulnerability assessment"
+        "Automated testing infrastructure and CI/CD pipeline",
+        "Security scanning and vulnerability assessment tools",
+        "Code quality metrics and linting configuration",
+        "Dependency management and update automation"
       ],
       criticalFixes: [
         "Review and update dependencies for security vulnerabilities",
-        "Add error handling and logging throughout the codebase",
-        "Implement proper input validation and sanitization",
-        "Add backup and recovery procedures"
+        "Implement comprehensive error handling and logging throughout codebase",
+        "Add proper input validation and sanitization for all user inputs",
+        "Establish backup and recovery procedures for critical data",
+        "Audit authentication and authorization mechanisms"
       ],
       requiredImprovements: [
-        "Code organization and modularization",
-        "Performance optimization and profiling",
-        "Code documentation and commenting",
-        "Consistent coding standards and linting"
+        "Code organization and modularization for better maintainability",
+        "Performance optimization and profiling implementation",
+        "Comprehensive code documentation and inline commenting",
+        "Consistent coding standards and automated linting setup",
+        "Database optimization and query performance tuning"
       ],
       innovationIdeas: [
-        "Implement advanced monitoring and analytics dashboard",
-        "Add machine learning capabilities for predictive features",
-        "Create API integration capabilities for third-party services",
-        "Develop mobile companion application",
-        "Add real-time collaboration features"
+        "Implement advanced monitoring and analytics dashboard with real-time metrics",
+        "Add machine learning capabilities for predictive features and user behavior analysis",
+        "Create comprehensive API integration capabilities for third-party services",
+        "Develop mobile companion application for enhanced user experience",
+        "Add real-time collaboration features with live updates and notifications"
       ]
     };
 
-    logger.warn("Using fallback analysis due to LLM failure", {
+    logger.warn("Using enhanced fallback analysis due to LLM failure", {
       fallbackItemsCount: {
         missingComponents: fallbackAnalysis.missingComponents.length,
         criticalFixes: fallbackAnalysis.criticalFixes.length,
@@ -465,6 +711,7 @@ Make each item specific and actionable. Include context about why each item is i
         innovationIdeas: fallbackAnalysis.innovationIdeas.length
       }
     });
+    
     return fallbackAnalysis;
   }
 }
@@ -551,48 +798,103 @@ function generateIssuesFromAnalysis(analysis: PlanAnalysis, milestoneNumber: num
   return issues;
 }
 
-// Phase 5: Create GitHub Issues
+// Phase 5: Create GitHub Issues with enhanced rate limiting and error handling
 async function createGitHubIssues(octokit: Octokit, owner: string, repo: string, issues: IssueTemplate[]): Promise<GitHubIssue[]> {
-  logger.info("Creating GitHub issues", { count: issues.length });
+  const config = getPlanConfig();
+  logger.info("Creating GitHub issues", { count: issues.length, maxIssues: config.maxIssues });
 
   const createdIssues: GitHubIssue[] = [];
-  const MAX_ISSUES = 20; // Limit to prevent overwhelming the repository
+  
+  // Limit issues to prevent overwhelming the repository
+  const issuesToCreate = issues.slice(0, config.maxIssues);
+  
+  if (issues.length > config.maxIssues) {
+    logger.warn(`Limiting issues creation from ${issues.length} to ${config.maxIssues} to prevent repository overwhelming`);
+  }
 
-  const issuesToCreate = issues.slice(0, MAX_ISSUES);
-
-  for (let i = 0; i < issuesToCreate.length; i++) {
-    const issueTemplate = issuesToCreate[i];
+  // Process issues in batches to respect rate limits
+  const BATCH_SIZE = 3;
+  const BATCH_DELAY_MS = 2000; // 2 second delay between batches
+  
+  for (let i = 0; i < issuesToCreate.length; i += BATCH_SIZE) {
+    const batch = issuesToCreate.slice(i, i + BATCH_SIZE);
     
-    try {
-      const { data: issue } = await octokit.issues.create({
-        owner,
-        repo,
-        title: issueTemplate.title,
-        body: issueTemplate.body,
-        labels: issueTemplate.labels
-      });
+    // Process batch in parallel
+    const batchPromises = batch.map(async (issueTemplate, batchIndex) => {
+      const issueIndex = i + batchIndex;
+      
+      try {
+        const issueData = await retryWithBackoff(
+          async () => {
+            // Validate issue template before creation
+            if (!issueTemplate.title || !issueTemplate.body) {
+              throw new Error(`Invalid issue template at index ${issueIndex}: missing title or body`);
+            }
+            
+            if (issueTemplate.title.length > 256) {
+              logger.warn(`Issue title too long, truncating`, { 
+                originalLength: issueTemplate.title.length,
+                issueIndex 
+              });
+              issueTemplate.title = issueTemplate.title.slice(0, 253) + '...';
+            }
+            
+            const { data: issue } = await octokit.issues.create({
+              owner,
+              repo,
+              title: issueTemplate.title,
+              body: issueTemplate.body,
+              labels: issueTemplate.labels
+            });
+            
+            return issue;
+          },
+          2, // Limited retries for individual issue creation
+          1000,
+          `Issue creation ${issueIndex + 1}`
+        );
 
-      createdIssues.push(issue as GitHubIssue);
-      logger.info(`Created issue ${i + 1}/${issuesToCreate.length}`, { 
-        issueNumber: issue.number, 
-        title: issue.title 
-      });
+        logger.info(`Created issue ${issueIndex + 1}/${issuesToCreate.length}`, { 
+          issueNumber: issueData.number, 
+          title: issueData.title,
+          labels: issueTemplate.labels
+        });
 
-      // Add small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
+        return issueData as GitHubIssue;
 
-    } catch (error) {
-      logger.error(`Error creating issue ${i + 1}`, { 
-        error, 
-        issueTitle: issueTemplate.title 
-      });
-      // Continue with other issues even if one fails
+      } catch (error) {
+        logger.error(`Error creating issue ${issueIndex + 1}`, { 
+          error: error instanceof Error ? error.message : 'Unknown error',
+          issueTitle: issueTemplate.title,
+          issueIndex
+        });
+        
+        // Continue with other issues even if one fails
+        return null;
+      }
+    });
+
+    // Wait for batch to complete
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Add successful creations to results
+    batchResults.forEach(result => {
+      if (result) {
+        createdIssues.push(result);
+      }
+    });
+
+    // Add delay between batches (except for the last batch)
+    if (i + BATCH_SIZE < issuesToCreate.length) {
+      logger.info(`Waiting ${BATCH_DELAY_MS}ms before next batch to respect rate limits`);
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
     }
   }
 
   logger.info("Issue creation completed", { 
     requested: issuesToCreate.length,
-    created: createdIssues.length 
+    created: createdIssues.length,
+    failed: issuesToCreate.length - createdIssues.length
   });
 
   return createdIssues;
