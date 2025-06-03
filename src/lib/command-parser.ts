@@ -118,6 +118,11 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
     return 'plan-approval-task';
   }
   
+  // Check for execution confirmation patterns
+  if (isExecutionConfirmationCommand(normalizedCommand)) {
+    return 'plan-execution-task';
+  }
+  
   // Check for specific commands with aliases
   switch (normalizedCommand) {
     case 'r':
@@ -134,23 +139,39 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
 }
 
 /**
- * Checks if a command is an approval command
+ * Checks if a command is an approval command for milestone decomposition
  * @param command The normalized command to check
  * @returns true if the command is an approval
  */
 function isApprovalCommand(command: string): boolean {
   const approvalPatterns = [
     'y',
-    'yes',
-    'ok', 
+    'yes', 
+    'ok',
     'okay',
     'approve',
-    'i approve',
-    'go',
-    'proceed',
-    'continue',
-    'lfg'
+    'i approve'
   ];
   
   return approvalPatterns.includes(command);
+}
+
+/**
+ * Checks if a command is an execution confirmation command
+ * @param command The normalized command to check
+ * @returns true if the command is an execution confirmation
+ */
+function isExecutionConfirmationCommand(command: string): boolean {
+  const confirmationPatterns = [
+    'go',
+    'proceed',
+    'continue',
+    'start',
+    'begin',
+    'lfg',
+    'let\'s go',
+    'do it'
+  ];
+  
+  return confirmationPatterns.includes(command);
 }
