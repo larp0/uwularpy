@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "cli": "ts-node --esm src/lib/codexCli.ts"
+    "cli": "ts-node --esm src/lib/codexCli.ts",
+    "test": "jest",
+    "test:plan": "jest test-plan-implementation.test.js"
   },
   "dependencies": {
     "@octokit/auth-app": "^4.0.9",
@@ -21,14 +23,17 @@
   },
   "devDependencies": {
     "@trigger.dev/build": "^3.3.17",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "14.0.4",
+    "jest": "^29.7.0",
     "postcss": "^8",
     "tailwindcss": "^3.3.0",
+    "ts-jest": "^29.3.4",
     "ts-node": "^10.9.2",
     "typescript": "^5"
   }

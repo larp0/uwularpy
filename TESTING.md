@@ -18,7 +18,15 @@ After deploying your uwularpy webhook to Vercel, follow these steps to test that
 
 2. **Add a comment mentioning "@uwularpy"**
    - The comment should include the text "@uwularpy" to trigger the webhook
-   - Example: "Hey @uwularpy, can you uwuify this repository?"
+   - **Available commands:**
+     - `@uwularpy` - Uwuify all markdown files in the repository
+     - `@uwularpy r` - Perform a full code review on a pull request
+     - `@uwularpy plan` - Generate a comprehensive development plan with issues and milestones
+     - `@uwularpy <custom message>` - Process repository with custom instructions
+   - Examples: 
+     - "Hey @uwularpy, can you uwuify this repository?"
+     - "@uwularpy r" (for code review)
+     - "@uwularpy plan" (for development planning)
 
 3. **Verify the immediate reply**
    - You should immediately see a reply comment saying "see you, uwuing..."
