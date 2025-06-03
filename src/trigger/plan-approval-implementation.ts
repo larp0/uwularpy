@@ -96,6 +96,14 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
       return { success: false, error: "No milestone found" };
     }
 
+    // Search for mermaid diagrams in the thread
+    const mermaidDiagrams = await findMermaidDiagrams(octokit, owner, repo, issueNumber);
+    
+    // Add mermaid diagram information to the response
+    if (mermaidDiagrams.length > 0) {
+      logger.info(`Found ${mermaidDiagrams.length} mermaid diagrams in the thread - will reference them in the approval`);
+    }
+
     // Parse milestone description to extract analysis
     const analysis = parseMilestoneDescription(milestone.description || '');
     
@@ -162,18 +170,20 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
       });
     }
     
-    // Post task overview and ask for confirmation
-    await postTaskOverviewAndConfirmation(octokit, owner, repo, issueNumber, milestone, createdIssues, finalAttachmentResults);
+    // Post task overview and ask for confirmation, including mermaid diagram info
+    await postTaskOverviewAndConfirmation(octokit, owner, repo, issueNumber, milestone, createdIssues, finalAttachmentResults, mermaidDiagrams);
     
     logger.info("Plan approval task completed", { 
       milestoneId: milestone.id,
-      issuesCreated: createdIssues.length 
+      issuesCreated: createdIssues.length,
+      mermaidDiagramsFound: mermaidDiagrams.length
     });
     
     return { 
       success: true, 
       milestone: milestone,
       issuesCreated: createdIssues.length,
+      mermaidDiagramsFound: mermaidDiagrams.length,
       phase: 'issues_created_awaiting_confirmation'
     };
     
@@ -206,6 +216,8 @@ async function findMostRecentMilestone(
   issueNumber: number
 ): Promise<GitHubMilestone | null> {
   try {
+    logger.info("Searching for milestone in recent comments", { issueNumber });
+    
     // Get recent comments to find milestone URL (increased to 200 for long threads)
     const { data: comments } = await octokit.issues.listComments({
       owner,
@@ -216,31 +228,94 @@ async function findMostRecentMilestone(
       direction: 'desc'
     });
     
-    // Look for milestone URL in recent comments
+    logger.info(`Found ${comments.length} comments to search`, { issueNumber });
+    
+    // Track all milestones found and their creation times
+    const foundMilestones: Array<{ milestone: GitHubMilestone; commentCreatedAt: string }> = [];
+    
+    // Look for milestone URL in recent comments with improved patterns
     for (const comment of comments) {
       if (comment.user?.login === BOT_USERNAME && comment.body) {
-        // Extract milestone URL pattern
-        const milestoneUrlMatch = comment.body.match(/https:\/\/github\.com\/[^\/]+\/[^\/]+\/milestone\/(\d+)/);
-        if (milestoneUrlMatch) {
-          const milestoneNumber = parseInt(milestoneUrlMatch[1], 10);
-          
-          // Get the milestone details
-          const { data: milestone } = await octokit.issues.getMilestone({
-            owner,
-            repo,
-            milestone_number: milestoneNumber
-          });
-          
-          return milestone as GitHubMilestone;
+        logger.debug(`Checking comment from ${comment.user.login}`, { 
+          commentId: comment.id,
+          createdAt: comment.created_at,
+          bodyLength: comment.body.length 
+        });
+        
+        // Extract milestone URL with multiple patterns
+        const milestoneUrlPatterns = [
+          /https:\/\/github\.com\/[^\/]+\/[^\/]+\/milestone\/(\d+)/g,
+          /\/milestone\/(\d+)/g,
+          /milestone(?:\s+#?)?(\d+)/ig
+        ];
+        
+        for (const pattern of milestoneUrlPatterns) {
+          let match;
+          while ((match = pattern.exec(comment.body)) !== null) {
+            const milestoneNumber = parseInt(match[1], 10);
+            
+            if (milestoneNumber && milestoneNumber > 0) {
+              try {
+                logger.info(`Found milestone reference #${milestoneNumber} in comment`, { 
+                  commentId: comment.id 
+                });
+                
+                // Get the milestone details
+                const { data: milestone } = await octokit.issues.getMilestone({
+                  owner,
+                  repo,
+                  milestone_number: milestoneNumber
+                });
+                
+                foundMilestones.push({
+                  milestone: milestone as GitHubMilestone,
+                  commentCreatedAt: comment.created_at
+                });
+                
+                logger.info(`Successfully retrieved milestone #${milestoneNumber}`, {
+                  title: milestone.title,
+                  state: milestone.state,
+                  createdAt: milestone.created_at
+                });
+                
+              } catch (milestoneError) {
+                logger.warn(`Failed to retrieve milestone #${milestoneNumber}`, { 
+                  error: milestoneError instanceof Error ? milestoneError.message : 'Unknown error'
+                });
+              }
+            }
+          }
         }
       }
     }
     
-    logger.warn("No milestone URL found in recent comments");
-    return null;
+    if (foundMilestones.length === 0) {
+      logger.warn("No milestone URLs found in recent comments", { 
+        commentsSearched: comments.length,
+        botComments: comments.filter(c => c.user?.login === BOT_USERNAME).length
+      });
+      return null;
+    }
+    
+    // Sort by comment creation time (most recent first) and return the most recent
+    foundMilestones.sort((a, b) => 
+      new Date(b.commentCreatedAt).getTime() - new Date(a.commentCreatedAt).getTime()
+    );
+    
+    const mostRecentMilestone = foundMilestones[0].milestone;
+    logger.info("Selected most recent milestone", {
+      milestoneNumber: mostRecentMilestone.number,
+      title: mostRecentMilestone.title,
+      totalFound: foundMilestones.length
+    });
+    
+    return mostRecentMilestone;
     
   } catch (error) {
-    logger.error("Error finding recent milestone", { error });
+    logger.error("Error finding recent milestone", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      issueNumber 
+    });
     return null;
   }
 }
@@ -280,6 +355,58 @@ function parseMilestoneDescription(description: string): PlanAnalysis {
   } catch (error) {
     logger.warn("Failed to parse milestone description, using fallback", { error });
     return fallbackAnalysis;
+  }
+}
+
+// Find and extract mermaid diagrams from thread comments
+async function findMermaidDiagrams(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<string[]> {
+  try {
+    logger.info("Searching for mermaid diagrams in thread", { issueNumber });
+    
+    const { data: comments } = await octokit.issues.listComments({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      per_page: 200,
+      sort: 'created',
+      direction: 'desc'
+    });
+    
+    const mermaidDiagrams: string[] = [];
+    
+    for (const comment of comments) {
+      if (comment.body) {
+        // Find mermaid code blocks
+        const mermaidPattern = /```mermaid\s*\n([\s\S]*?)\n```/gi;
+        let match;
+        
+        while ((match = mermaidPattern.exec(comment.body)) !== null) {
+          const diagramContent = match[1].trim();
+          if (diagramContent) {
+            mermaidDiagrams.push(diagramContent);
+            logger.info(`Found mermaid diagram in comment ${comment.id}`, {
+              diagramLength: diagramContent.length,
+              author: comment.user?.login
+            });
+          }
+        }
+      }
+    }
+    
+    logger.info(`Found ${mermaidDiagrams.length} mermaid diagrams in thread`);
+    return mermaidDiagrams;
+    
+  } catch (error) {
+    logger.error("Error searching for mermaid diagrams", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      issueNumber 
+    });
+    return [];
   }
 }
 
@@ -877,7 +1004,8 @@ async function postTaskOverviewAndConfirmation(
   issueNumber: number,
   milestone: GitHubMilestone,
   createdIssues: GitHubIssue[],
-  attachmentResults?: { successful: number; failed: number; failures: Array<{ issueNumber: number; title: string }> }
+  attachmentResults?: { successful: number; failed: number; failures: Array<{ issueNumber: number; title: string }> },
+  mermaidDiagrams?: string[]
 ): Promise<void> {
   
   // Sort issues by priority for better presentation
@@ -905,9 +1033,15 @@ async function postTaskOverviewAndConfirmation(
     }
   }
 
+  // Build mermaid diagram status message
+  let mermaidStatus = '';
+  if (mermaidDiagrams && mermaidDiagrams.length > 0) {
+    mermaidStatus = `\n\n📊 **Mermaid Diagrams Found:** I found ${mermaidDiagrams.length} mermaid diagram(s) in this thread. These will be considered in the implementation guidance.`;
+  }
+
   const overviewComment = `## ✅ Issues Created Successfully!
 
-I've decomposed the milestone into ${createdIssues.length} actionable GitHub issues and linked them to the milestone.${attachmentStatus}
+I've decomposed the milestone into ${createdIssues.length} actionable GitHub issues and linked them to the milestone.${attachmentStatus}${mermaidStatus}
 
 ### 📋 Task Overview (Execution Order)
 

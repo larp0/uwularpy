@@ -1,5 +1,5 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
-import { additionalFiles, additionalPackages } from "@trigger.dev/build/extensions/core";
+import { additionalFiles } from "@trigger.dev/build/extensions/core";
 
 export default defineConfig({
   project: "proj_xadoucnepuzlmbifjvgz",
@@ -25,8 +25,7 @@ export default defineConfig({
     extensions: [
       additionalFiles({
         files: ["src/lib/bin/uwuify"]
-      }),
-      additionalPackages({ packages: ["@openai/codex"] })
+      })
     ]
   },
 });

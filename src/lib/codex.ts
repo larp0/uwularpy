@@ -4,15 +4,16 @@ import * as os from "os";
 import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
+import OpenAI from "openai";
 
 /**
- * Clone a repository, run OpenAI Codex CLI in a self-ask flow by repeatedly passing prompt input via stdin,
+ * Clone a repository, run OpenAI API in a self-ask flow by repeatedly sending prompts,
  * commit & push changes.
  *
- * The self-ask flow repeatedly sends the current prompt to the Codex CLI until no new reply is generated.
+ * The self-ask flow repeatedly sends the current prompt to the OpenAI API until no new reply is generated.
  * It includes an evaluator-optimizer to refine responses and a search & replace tool to apply changes.
  *
- * @param prompt - The initial prompt for Codex.
+ * @param prompt - The initial prompt for OpenAI.
  * @param repoUrl - HTTPS clone URL of the repository.
  * @param branchName - Name of the branch to create and push.
  * @param installationId - Optional GitHub App installation ID for authentication.
@@ -56,8 +57,8 @@ export async function codexRepository(
     execSync(`git checkout -b ${branchName}`, { cwd: tempDir, stdio: "inherit" });
 
     // Set Git identity
-    execSync('git config user.email "bot@uwularpy.dev"', { cwd: tempDir, stdio: "inherit" });
-    execSync('git config user.name "uwularpy"', { cwd: tempDir, stdio: "inherit" });
+    execSync('git config user.email "bot@larp.dev"', { cwd: tempDir, stdio: "inherit" });
+    execSync('git config user.name "larp0"', { cwd: tempDir, stdio: "inherit" });
 
     // Self-ask flow: repeatedly call Codex CLI until no new reply is generated.
     let userText = prompt + "\n\nPlease respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
@@ -66,57 +67,45 @@ export async function codexRepository(
 
     while (true) {
       iteration++;
-      logger.log("Running Codex CLI self-ask iteration", { iteration, promptLength: userText.length });
+      logger.log("Running OpenAI API self-ask iteration", { iteration, promptLength: userText.length });
 
-      // Run Codex CLI via execSync, passing prompt via stdin and capturing stdout
+      // Run OpenAI API directly instead of Codex CLI
       let stdoutData = "";
       try {
-        // Simpler direct approach with temp file that should work in more environments
-        logger.log("Running Codex CLI with temp file input", { inputLength: userText.length });
+        // Initialize OpenAI client
+        const openai = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY,
+        });
+
+        logger.log("Calling OpenAI API", { inputLength: userText.length });
         
-        // Create a temporary file with the proper format
-        const formattedPrompt = `*** Begin Patch ***\n${userText}\n*** End Patch ***`;
-        const promptFilePath = path.join(tempDir, "prompt.txt");
-        fs.writeFileSync(promptFilePath, formattedPrompt, "utf-8");
-        
-        // Run Codex CLI with file input - ensure it works in all environments
-        logger.log("Executing Codex CLI with file input", { promptPath: promptFilePath });
-        
-        // Use /bin/bash explicitly to ensure proper redirection support
-        const shellCmd = `/bin/bash -c "npx @openai/codex --approval-mode full-auto < ${promptFilePath}"`;
-        logger.log("Shell command", { command: shellCmd });
-        
-        stdoutData = execSync(
-          shellCmd,
-          {
-            cwd: tempDir,
-            env: { 
-              ...process.env, 
-              OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-              FORCE_COLOR: "0",  // Disable color to avoid TTY-related issues
-              CI: "true",         // Signal that we're in a CI-like environment
-              NODE_OPTIONS: "--no-warnings" // Suppress Node.js warnings
+        // Call OpenAI API with the prompt
+        const response = await openai.chat.completions.create({
+          model: "gpt-4.1-mini", // Use GPT-4 instead of Codex for better results
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful coding assistant. When asked to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```"
             },
-            encoding: "utf-8",
-            maxBuffer: 10 * 1024 * 1024  // Increase buffer size to 10MB
-          }
-        ).trim();
+            {
+              role: "user", 
+              content: userText
+            }
+          ],
+          max_tokens: 30000,
+          temperature: 0.3
+        });
         
-        // Clean up the temporary file
-        try {
-          fs.unlinkSync(promptFilePath);
-        } catch (e) {
-          logger.warn("Failed to clean up prompt file", { path: promptFilePath });
-        }
+        stdoutData = response.choices[0]?.message?.content || "";
         
         // Log the output for debugging
-        logger.log("Codex CLI output received", { 
+        logger.log("OpenAI API response received", { 
           stdoutLength: stdoutData.length,
           stdoutPreview: stdoutData.substring(0, 100) 
         });
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
-        logger.error("Codex CLI invocation failed", { 
+        logger.error("OpenAI API call failed", { 
           error: errorMsg,
           iteration,
           promptLength: userText.length
@@ -124,23 +113,14 @@ export async function codexRepository(
         
         // Throw an error on the first iteration, but continue after that
         if (iteration === 1) {
-          throw new Error(`Codex CLI failed to process input: ${errorMsg}`);
+          throw new Error(`OpenAI API failed to process input: ${errorMsg}`);
         } else {
           break; // exit loop after at least one iteration
         }
       }
 
-      // Attempt to parse JSON output (assuming quiet mode might output JSON)
-      try {
-        const parsed = JSON.parse(stdoutData);
-        if (parsed && parsed.content && Array.isArray(parsed.content) && parsed.content.length > 0) {
-          newSelfReply = parsed.content[0].text.trim();
-        } else {
-          newSelfReply = stdoutData.trim();
-        }
-      } catch (e) {
-        newSelfReply = stdoutData.trim();
-      }
+      // Process the API response directly
+      newSelfReply = stdoutData.trim();
       logger.log("Self-ask reply", { newSelfReplyLength: newSelfReply.length });
 
       // If no new reply or reply is identical to previous input, break the loop
@@ -173,7 +153,7 @@ export async function codexRepository(
 
     // Commit and push changes
     execSync("git add .", { cwd: tempDir, stdio: "inherit" });
-    execSync('git commit -m "Apply changes from Codex CLI self-ask flow"', { cwd: tempDir, stdio: "inherit" });
+    execSync('git commit -m "Apply changes from OpenAI API self-ask flow"', { cwd: tempDir, stdio: "inherit" });
     execSync(`git push -u origin ${branchName}`, {
       cwd: tempDir,
       stdio: "inherit",
@@ -197,7 +177,7 @@ export async function codexRepository(
 
 /**
  * Evaluate the quality of the response and optimize it.
- * @param reply - The reply from Codex CLI.
+ * @param reply - The reply from OpenAI API.
  * @param repoPath - Path to the repository for context.
  * @returns Optimized reply.
  */
@@ -271,7 +251,7 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
 
 /**
  * Process search/replace blocks in the reply and apply them to repository files.
- * @param reply - The reply from Codex CLI.
+ * @param reply - The reply from OpenAI API.
  * @param repoPath - Path to the repository.
  * @returns Array of changes made.
  */

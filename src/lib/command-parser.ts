@@ -60,11 +60,12 @@ export function parseCommand(comment: string): ParsedCommand {
     return parseCommand(truncated);
   }
   
-  // Check if the comment mentions @uwularpy or @l with various patterns
+  // Check if the comment mentions @uwularpy, @l, or self@ with various patterns
   // Handle multiple mentions by taking the first one
   const mentionPatterns = [
     /@uwularpy\b/i,
-    /@l\s+/i
+    /@l\s+/i,
+    /self@/i
   ];
   
   const isMention = mentionPatterns.some(pattern => pattern.test(sanitizedComment));
@@ -78,15 +79,16 @@ export function parseCommand(comment: string): ParsedCommand {
   }
 
   // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
-  // Updated regex to handle edge cases better
-  const match = sanitizedComment.match(/@(uwularpy|l)\s+([\s\S]*?)(?=@\w+|$)/i);
-  let textAfterMention = match ? match[2].trim() : '';
+  // Updated regex to handle edge cases better, including self@ prefix
+  const match = sanitizedComment.match(/@(uwularpy|l)\s+([\s\S]*?)(?=@\w+|$)/i) || 
+                sanitizedComment.match(/self@\s*(.+?)(?=@\w+|$)/i);
+  let textAfterMention = match ? (match[2] || match[1]).trim() : '';
   
   // Additional cleanup to handle any hidden characters or extra whitespace
   textAfterMention = textAfterMention.replace(/\s+/g, ' ').trim();
 
   // Handle edge case where mention is at the end with no command
-  if (!textAfterMention && /@(uwularpy|l)\s*$/i.test(sanitizedComment)) {
+  if (!textAfterMention && (/@(uwularpy|l)\s*$/i.test(sanitizedComment) || /self@\s*$/i.test(sanitizedComment))) {
     return {
       command: '',
       fullText: '',
