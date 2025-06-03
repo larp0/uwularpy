@@ -39,7 +39,12 @@ export async function POST(request: NextRequest) {
     const event = request.headers.get('x-github-event');
     
     // Process issue_comment events for user commands
-    if (event === 'issue_comment' && body.action === 'created' && body.comment?.user?.login !== 'uwularpy') {
+    // Allow self-triggering only with "self@" prefix, otherwise exclude uwularpy bot messages
+    const isFromBot = body.comment?.user?.login === 'uwularpy';
+    const hasSelfPrefix = body.comment?.body?.includes('self@');
+    const shouldProcess = !isFromBot || (isFromBot && hasSelfPrefix);
+    
+    if (event === 'issue_comment' && body.action === 'created' && shouldProcess) {
       // Validate required fields
       if (!body.comment?.body || !body.issue?.number || !body.repository?.name || !body.repository?.owner?.login) {
         console.warn('Missing required fields in webhook payload');
