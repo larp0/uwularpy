@@ -1,7 +1,8 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import { createAuthenticatedOctokit } from "./github-auth";
+import { BOT_USERNAME, COPILOT_USERNAME } from "./workflow-constants";
 import {
   ISSUE_LABELS,
   ISSUE_PRIORITIES
@@ -141,26 +142,7 @@ export async function runPlanExecutionTask(payload: GitHubContext, ctx: any) {
   }
 }
 
-// Create authenticated Octokit instance
-async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
-  const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  
-  if (!appId || !privateKey) {
-    throw new Error("GitHub App credentials not found in environment variables");
-  }
-  
-  const octokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: parseInt(appId, 10),
-      privateKey,
-      installationId,
-    },
-  });
-  
-  return octokit;
-}
+
 
 // Find the most recent milestone (same logic as approval task)
 async function findMostRecentMilestone(
@@ -182,7 +164,7 @@ async function findMostRecentMilestone(
     
     // Look for milestone URL in recent comments
     for (const comment of comments) {
-      if (comment.user?.login === 'uwularpy' && comment.body) {
+      if (comment.user?.login === BOT_USERNAME && comment.body) {
         // Extract milestone URL pattern
         const milestoneUrlMatch = comment.body.match(/https:\/\/github\.com\/[^\/]+\/[^\/]+\/milestone\/(\d+)/);
         if (milestoneUrlMatch) {
@@ -256,11 +238,12 @@ function sortIssuesByPriority(issues: GitHubIssue[]): GitHubIssue[] {
   });
 }
 
-// Find the next issue to assign (first open, unassigned issue)
+// Find the next issue to assign (first open, unassigned issue without copilot-assigned label)
 function findNextIssueToAssign(sortedIssues: GitHubIssue[]): GitHubIssue | null {
   return sortedIssues.find(issue => 
     issue.state === 'open' && 
-    issue.assignees.length === 0
+    issue.assignees.length === 0 &&
+    !issue.labels.some(label => label.name === 'copilot-assigned')
   ) || null;
 }
 
@@ -279,14 +262,14 @@ async function assignIssueToCopilot(
         owner,
         repo,
         issue_number: issue.number,
-        assignees: ['copilot']
+        assignees: [COPILOT_USERNAME]
       });
       assignmentSuccess = true;
-      logger.info("Successfully assigned issue to 'copilot' user", { 
+      logger.info(`Successfully assigned issue to '${COPILOT_USERNAME}' user`, { 
         issueNumber: issue.number
       });
     } catch (assignError) {
-      logger.warn("Could not assign to 'copilot' user, will use comment-based assignment", { 
+      logger.warn(`Could not assign to '${COPILOT_USERNAME}' user, will use comment-based assignment`, { 
         error: assignError instanceof Error ? assignError.message : 'Unknown error',
         issueNumber: issue.number
       });
@@ -294,8 +277,8 @@ async function assignIssueToCopilot(
     
     // Create comment to trigger Copilot's attention
     const assignmentMessage = assignmentSuccess 
-      ? "🤖 **Assigned to GitHub Copilot**\n\n@copilot This issue has been automatically assigned to you as part of the AI development plan workflow."
-      : "🤖 **Assigned to GitHub Copilot**\n\n@copilot This issue has been automatically assigned to you as part of the AI development plan workflow.\n\n*Note: Could not assign you directly, but you are tagged here for notification.*";
+      ? `🤖 **Assigned to GitHub Copilot**\n\n@${COPILOT_USERNAME} This issue has been automatically assigned to you as part of the AI development plan workflow.`
+      : `🤖 **Assigned to GitHub Copilot**\n\n@${COPILOT_USERNAME} This issue has been automatically assigned to you as part of the AI development plan workflow.\n\n*Note: Could not assign you directly, but you are tagged here for notification.*`;
     
     await octokit.issues.createComment({
       owner,

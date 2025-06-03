@@ -1,7 +1,8 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import { createAuthenticatedOctokit } from "./github-auth";
+import { BOT_USERNAME } from "./workflow-constants";
 import {
   CRITICAL_ISSUE_TEMPLATE,
   MISSING_COMPONENT_TEMPLATE,
@@ -140,26 +141,6 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
 }
 
 // Create authenticated Octokit instance
-async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
-  const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  
-  if (!appId || !privateKey) {
-    throw new Error("GitHub App credentials not found in environment variables");
-  }
-  
-  const octokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: parseInt(appId, 10),
-      privateKey,
-      installationId,
-    },
-  });
-  
-  return octokit;
-}
-
 // Find the most recent milestone created by looking at recent comments
 async function findMostRecentMilestone(
   octokit: Octokit, 
@@ -180,7 +161,7 @@ async function findMostRecentMilestone(
     
     // Look for milestone URL in recent comments
     for (const comment of comments) {
-      if (comment.user?.login === 'uwularpy' && comment.body) {
+      if (comment.user?.login === BOT_USERNAME && comment.body) {
         // Extract milestone URL pattern
         const milestoneUrlMatch = comment.body.match(/https:\/\/github\.com\/[^\/]+\/[^\/]+\/milestone\/(\d+)/);
         if (milestoneUrlMatch) {

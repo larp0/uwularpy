@@ -1,7 +1,8 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import { createAuthenticatedOctokit } from "./github-auth";
+import { BOT_USERNAME, REVIEW_COMMAND, TITLE_SIMILARITY_THRESHOLD } from "./workflow-constants";
 
 // Define interfaces for GitHub objects
 interface GitHubPullRequest {
@@ -110,26 +111,7 @@ export async function runPRMonitoringTask(payload: GitHubContext, ctx: any) {
   }
 }
 
-// Create authenticated Octokit instance
-async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
-  const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  
-  if (!appId || !privateKey) {
-    throw new Error("GitHub App credentials not found in environment variables");
-  }
-  
-  const octokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: parseInt(appId, 10),
-      privateKey,
-      installationId,
-    },
-  });
-  
-  return octokit;
-}
+
 
 // Find a related copilot-assigned issue for this PR
 async function findRelatedCopilotIssue(
@@ -160,7 +142,7 @@ async function findRelatedCopilotIssue(
       }
     }
     
-    // Strategy 2: Look for open copilot-assigned issues and match by similarity
+    // Strategy 2: Look for open copilot-assigned issues and match by similarity  
     const { data: issues } = await octokit.issues.listForRepo({
       owner,
       repo,
@@ -169,13 +151,50 @@ async function findRelatedCopilotIssue(
       per_page: 20
     });
     
-    // Find the most likely related issue by title similarity or creation time
+    // Find the most likely related issue using multiple heuristics
     if (issues.length > 0) {
-      // For now, return the oldest copilot-assigned issue
-      // In a more sophisticated implementation, we could use text similarity
-      const sortedIssues = issues.sort((a, b) => 
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      // Prefer issues that already have pr-created label (indicating a PR was previously linked)
+      const issuesWithPR = issues.filter((issue: any) => 
+        !issue.labels.some((label: any) => label.name === 'pr-created')
       );
+      
+      // If we have issues without PRs, use those first
+      const candidateIssues = issuesWithPR.length > 0 ? issuesWithPR : issues;
+      
+      // Try to match by title similarity (simple word matching)
+      const prTitleWords = pullRequest.title.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      for (const issue of candidateIssues) {
+        const issueWords = issue.title.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+        const commonWords = prTitleWords.filter(word => issueWords.includes(word));
+        const score = commonWords.length / Math.max(prTitleWords.length, issueWords.length, 1);
+        
+        if (score > bestScore && score > TITLE_SIMILARITY_THRESHOLD) { // Minimum similarity threshold
+          bestScore = score;
+          bestMatch = issue;
+        }
+      }
+      
+      if (bestMatch) {
+        logger.info("Found PR-issue match using title similarity", {
+          prTitle: pullRequest.title,
+          issueTitle: bestMatch.title,
+          similarity: bestScore
+        });
+        return bestMatch as GitHubIssue;
+      }
+      
+      // Fallback: return the most recently assigned issue (not oldest)
+      const sortedIssues = candidateIssues.sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      
+      logger.warn("Using fallback heuristic for PR-issue matching", {
+        prTitle: pullRequest.title,
+        selectedIssue: sortedIssues[0].title
+      });
       
       return sortedIssues[0] as GitHubIssue;
     }
@@ -200,7 +219,7 @@ async function postReviewTriggerComment(
       owner,
       repo,
       issue_number: prNumber,
-      body: "@l r"
+      body: REVIEW_COMMAND
     });
     
     logger.info("Posted review trigger comment", { prNumber });

@@ -1,7 +1,8 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
-import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import { createAuthenticatedOctokit } from "./github-auth";
+import { COPILOT_USERNAME, TITLE_SIMILARITY_THRESHOLD } from "./workflow-constants";
 import {
   ISSUE_LABELS,
   ISSUE_PRIORITIES
@@ -145,26 +146,7 @@ export async function runPRMergeProgressionTask(payload: GitHubContext, ctx: any
   }
 }
 
-// Create authenticated Octokit instance
-async function createAuthenticatedOctokit(installationId: number): Promise<Octokit> {
-  const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  
-  if (!appId || !privateKey) {
-    throw new Error("GitHub App credentials not found in environment variables");
-  }
-  
-  const octokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: parseInt(appId, 10),
-      privateKey,
-      installationId,
-    },
-  });
-  
-  return octokit;
-}
+
 
 // Find a related copilot-assigned issue for this PR (similar to pr-monitoring)
 async function findRelatedCopilotIssue(
@@ -204,11 +186,42 @@ async function findRelatedCopilotIssue(
       per_page: 20
     });
     
-    // Find the most likely related issue by creation time
+    // Find the most likely related issue using better heuristics
     if (issues.length > 0) {
+      // Try to match by title similarity first
+      const prTitleWords = pullRequest.title.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+      let bestMatch = null;
+      let bestScore = 0;
+      
+      for (const issue of issues) {
+        const issueWords = issue.title.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+        const commonWords = prTitleWords.filter(word => issueWords.includes(word));
+        const score = commonWords.length / Math.max(prTitleWords.length, issueWords.length, 1);
+        
+        if (score > bestScore && score > TITLE_SIMILARITY_THRESHOLD) { // Minimum similarity threshold
+          bestScore = score;
+          bestMatch = issue;
+        }
+      }
+      
+      if (bestMatch) {
+        logger.info("Found PR-issue match using title similarity for merge progression", {
+          prTitle: pullRequest.title,
+          issueTitle: bestMatch.title,
+          similarity: bestScore
+        });
+        return bestMatch as GitHubIssue;
+      }
+      
+      // Fallback: return the most recently assigned issue (not oldest)
       const sortedIssues = issues.sort((a, b) => 
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
+      
+      logger.warn("Using fallback heuristic for PR-issue merge progression matching", {
+        prTitle: pullRequest.title,
+        selectedIssue: sortedIssues[0].title
+      });
       
       return sortedIssues[0] as GitHubIssue;
     }
@@ -347,7 +360,7 @@ async function assignIssueToCopilot(
       issue_number: issue.number,
       body: `🤖 **Assigned to GitHub Copilot**
 
-@copilot This issue has been automatically assigned to you as the next task in the AI development plan workflow.
+@${COPILOT_USERNAME} This issue has been automatically assigned to you as the next task in the AI development plan workflow.
 
 Please implement the solution according to the requirements and create a pull request when ready.
 
