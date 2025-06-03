@@ -1,6 +1,6 @@
 {
   "name": "uwularpy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Next.js application that uwuifies markdown files in GitHub repositories when mentioned in issue comments",
   "scripts": {
     "dev": "next dev",

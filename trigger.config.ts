@@ -3,7 +3,7 @@ import { additionalFiles, additionalPackages } from "@trigger.dev/build/extensio
 
 export default defineConfig({
   project: "proj_xadoucnepuzlmbifjvgz",
-  runtime: "bun",
+  runtime: "node",
   logLevel: "debug",
   // The max compute seconds a task is allowed to run. If the task run exceeds this duration, it will be stopped.
   // You can override this on an individual task.
