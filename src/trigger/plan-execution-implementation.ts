@@ -272,17 +272,36 @@ async function assignIssueToCopilot(
   issue: GitHubIssue
 ): Promise<void> {
   try {
-    // Note: We can't directly assign to "copilot" as it's not a real user
-    // Instead, we'll add a comment to trigger Copilot's attention
-    // In a real implementation, this would integrate with GitHub Copilot's API
+    // Try to assign the issue to the "copilot" user if it exists
+    let assignmentSuccess = false;
+    try {
+      await octokit.issues.update({
+        owner,
+        repo,
+        issue_number: issue.number,
+        assignees: ['copilot']
+      });
+      assignmentSuccess = true;
+      logger.info("Successfully assigned issue to 'copilot' user", { 
+        issueNumber: issue.number
+      });
+    } catch (assignError) {
+      logger.warn("Could not assign to 'copilot' user, will use comment-based assignment", { 
+        error: assignError instanceof Error ? assignError.message : 'Unknown error',
+        issueNumber: issue.number
+      });
+    }
+    
+    // Create comment to trigger Copilot's attention
+    const assignmentMessage = assignmentSuccess 
+      ? "🤖 **Assigned to GitHub Copilot**\n\n@copilot This issue has been automatically assigned to you as part of the AI development plan workflow."
+      : "🤖 **Assigned to GitHub Copilot**\n\n@copilot This issue has been automatically assigned to you as part of the AI development plan workflow.\n\n*Note: Could not assign you directly, but you are tagged here for notification.*";
     
     await octokit.issues.createComment({
       owner,
       repo,
       issue_number: issue.number,
-      body: `🤖 **Assigned to GitHub Copilot**
-
-@copilot This issue has been automatically assigned to you as part of the AI development plan workflow.
+      body: `${assignmentMessage}
 
 Please implement the solution according to the requirements and create a pull request when ready.
 
@@ -309,7 +328,8 @@ Please implement the solution according to the requirements and create a pull re
     
     logger.info("Assigned issue to GitHub Copilot", { 
       issueNumber: issue.number,
-      issueTitle: issue.title
+      issueTitle: issue.title,
+      directAssignment: assignmentSuccess
     });
     
   } catch (error) {
