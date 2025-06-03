@@ -57,8 +57,8 @@ export async function codexRepository(
     execSync(`git checkout -b ${branchName}`, { cwd: tempDir, stdio: "inherit" });
 
     // Set Git identity
-    execSync('git config user.email "bot@uwularpy.dev"', { cwd: tempDir, stdio: "inherit" });
-    execSync('git config user.name "uwularpy"', { cwd: tempDir, stdio: "inherit" });
+    execSync('git config user.email "bot@larp.dev"', { cwd: tempDir, stdio: "inherit" });
+    execSync('git config user.name "larp0"', { cwd: tempDir, stdio: "inherit" });
 
     // Self-ask flow: repeatedly call Codex CLI until no new reply is generated.
     let userText = prompt + "\n\nPlease respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
@@ -92,8 +92,8 @@ export async function codexRepository(
               content: userText
             }
           ],
-          max_tokens: 4000,
-          temperature: 0.1
+          max_tokens: 30000,
+          temperature: 0.3
         });
         
         stdoutData = response.choices[0]?.message?.content || "";
