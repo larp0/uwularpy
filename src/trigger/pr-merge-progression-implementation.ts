@@ -189,13 +189,13 @@ async function findRelatedCopilotIssue(
     // Find the most likely related issue using better heuristics
     if (issues.length > 0) {
       // Try to match by title similarity first
-      const prTitleWords = pullRequest.title.toLowerCase().split(/\s+/).filter(word => word.length > 2);
+      const prTitleWords = pullRequest.title.toLowerCase().split(/\s+/).filter((word: string) => word.length > 2);
       let bestMatch = null;
       let bestScore = 0;
       
       for (const issue of issues) {
         const issueWords = issue.title.toLowerCase().split(/\s+/).filter(word => word.length > 2);
-        const commonWords = prTitleWords.filter(word => issueWords.includes(word));
+        const commonWords = prTitleWords.filter((word: string) => issueWords.includes(word));
         const score = commonWords.length / Math.max(prTitleWords.length, issueWords.length, 1);
         
         if (score > bestScore && score > TITLE_SIMILARITY_THRESHOLD) { // Minimum similarity threshold

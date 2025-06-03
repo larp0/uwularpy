@@ -1,10 +1,10 @@
 {
   "name": "uwularpy",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A Next.js application that uwuifies markdown files in GitHub repositories when mentioned in issue comments",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NEXT_DISABLE_ESLINT=1 next build",
     "start": "next start",
     "lint": "next lint",
     "cli": "ts-node --esm src/lib/codexCli.ts",
@@ -17,11 +17,13 @@
     "@openai/codex": "^0.1.2505172129",
     "@trigger.dev/sdk": "^3.3.17",
     "axios": "^1.9.0",
+    "commander": "^14.0.0",
     "next": "^15.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.8",
     "@trigger.dev/build": "^3.3.17",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.15.29",

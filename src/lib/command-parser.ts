@@ -133,7 +133,34 @@ export async function getTaskType(
     return null;
   }
 
+  // Priority commands that should work without AI
+  const normalizedCommand = parsedCommand.command.toLowerCase().trim();
+  
+  // Handle critical commands directly without AI to ensure they always work
+  if (normalizedCommand === 'approve' || normalizedCommand === 'yes' || normalizedCommand === 'y' || normalizedCommand === 'ok') {
+    console.log('[getTaskType] Direct match for approval command:', normalizedCommand);
+    return 'plan-approval-task';
+  }
+  
+  if (normalizedCommand === 'plan' || normalizedCommand === 'planning' || normalizedCommand === 'analyze') {
+    console.log('[getTaskType] Direct match for plan command:', normalizedCommand);
+    return 'plan-task';
+  }
+  
+  if (normalizedCommand === 'review' || normalizedCommand === 'r') {
+    console.log('[getTaskType] Direct match for review command:', normalizedCommand);
+    return 'full-code-review';
+  }
+
   try {
+    console.log('[getTaskType] Attempting AI classification for command:', parsedCommand.command);
+    
+    // Check if OpenAI API key is configured
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('[getTaskType] OpenAI API key not configured, using fallback');
+      return getTaskTypeFallback(parsedCommand);
+    }
+    
     // Use AI to classify the intent
     const classification = await classifyCommandIntent(parsedCommand.command, context);
     
@@ -141,7 +168,7 @@ export async function getTaskType(
     parsedCommand.aiIntent = classification.intent;
     parsedCommand.aiConfidence = classification.confidence;
     
-    console.log('[getTaskType] AI Classification:', {
+    console.log('[getTaskType] AI Classification SUCCESS:', {
       command: parsedCommand.command,
       intent: classification.intent,
       confidence: classification.confidence,
@@ -156,11 +183,14 @@ export async function getTaskType(
       return taskType;
     }
     
-    // Fallback to codex-task if no mapping
+    console.warn(`[getTaskType] No task mapping found for intent "${classification.intent}", defaulting to codex-task`);
     return 'codex-task';
     
   } catch (error) {
-    console.error('[getTaskType] AI classification failed, using fallback', error);
+    console.error('[getTaskType] AI classification FAILED:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      command: parsedCommand.command
+    });
     
     // Fallback to the old pattern-based system
     return getTaskTypeFallback(parsedCommand);
@@ -175,9 +205,12 @@ function getTaskTypeFallback(parsedCommand: ParsedCommand): string | null {
   const normalizedCommand = parsedCommand.command.toLowerCase().trim();
   
   console.log('[getTaskTypeFallback] Using pattern matching for:', normalizedCommand);
+  console.log('[getTaskTypeFallback] Normalized command length:', normalizedCommand.length);
+  console.log('[getTaskTypeFallback] Normalized command chars:', normalizedCommand.split(''));
   
   // Check for approval patterns first
   if (isApprovalCommand(normalizedCommand)) {
+    console.log('[getTaskTypeFallback] ✅ Matched approval pattern, returning plan-approval-task');
     return 'plan-approval-task';
   }
   
@@ -223,21 +256,40 @@ function isApprovalCommand(command: string): boolean {
     'ok',
     'okay',
     'approve',
-    'i approve'
+    'i approve',
+    'lgtm',
+    'ship it',
+    'looks good',
+    'go ahead'
   ];
   
   // Debug logging
   console.log('[isApprovalCommand] Checking command:', command);
-  console.log('[isApprovalCommand] Command length:', command.length);
-  console.log('[isApprovalCommand] Command char codes:', command.split('').map(c => c.charCodeAt(0)));
   
-  // Check if command starts with any approval pattern (handles edge cases)
-  const isApproval = approvalPatterns.includes(command) ||
-                     approvalPatterns.some(pattern => command.startsWith(pattern + ' '));
+  // Simple direct match first
+  if (approvalPatterns.includes(command)) {
+    console.log('[isApprovalCommand] Direct match found');
+    return true;
+  }
   
-  console.log('[isApprovalCommand] Is approval?', isApproval);
+  // Check if command starts with any approval pattern
+  const startsWithApproval = approvalPatterns.some(pattern =>
+    command === pattern || command.startsWith(pattern + ' ')
+  );
   
-  return isApproval;
+  if (startsWithApproval) {
+    console.log('[isApprovalCommand] Starts with approval pattern');
+    return true;
+  }
+  
+  // Check for common variations
+  if (/^(ship\s+it|looks\s+good|go\s+ahead)/i.test(command)) {
+    console.log('[isApprovalCommand] Matches common variation');
+    return true;
+  }
+  
+  console.log('[isApprovalCommand] No approval pattern matched');
+  return false;
 }
 
 /**
