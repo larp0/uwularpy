@@ -107,7 +107,7 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
 
   // If no command text, trigger uwuify repository
   if (!parsedCommand.command) {
-    return 'uwuify-repository';
+    return null;
   }
 
   // Normalize command for comparison
