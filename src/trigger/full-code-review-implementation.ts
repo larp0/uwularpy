@@ -120,10 +120,10 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   logger.log("Prepared diff for review", { diffSize });
 
   // Construct OpenAI request payload
-  const systemMsg = "You are a code reviewer. Review the code changes below for quality, security, and style issues.";
+  const systemMsg = "You are a code reviewer and top notch bug resolver. THINK DEEPER AND FIND BUGS, Review the code changes below for quality, security, and style issues. Roast devs a bit tho, be creative.";
   const userMsg = `DIFF:\n${diff}\n\nORIGINAL FILES:\n${JSON.stringify(originalFiles)}`;
   const requestBody = {
-    model: "gpt-4",
+    model: "gpt-4.1-mini",
     messages: [
       { role: "system", content: systemMsg },
       { role: "user", content: userMsg }
