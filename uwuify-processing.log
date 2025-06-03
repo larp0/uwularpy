@@ -1,0 +1,40 @@
+Repository directory: /tmp/repo-0a6lEy
+UwUify binary path: /app/src/lib/bin/uwuify
+Testing uwuify binary...
+/app/src/lib/bin/uwuify: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.33' not found (required by /app/src/lib/bin/uwuify)
+/app/src/lib/bin/uwuify: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.32' not found (required by /app/src/lib/bin/uwuify)
+/app/src/lib/bin/uwuify: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found (required by /app/src/lib/bin/uwuify)
+ERROR: UwUify binary test failed!
+Finding all markdown files...
+Found 7 markdown files to process
+Sample of files to process:
+/tmp/repo-0a6lEy/DEPLOYMENT.md
+/tmp/repo-0a6lEy/README.md
+/tmp/repo-0a6lEy/RESTORATION.md
+/tmp/repo-0a6lEy/DOCUMENTATION.md
+/tmp/repo-0a6lEy/VERIFICATION.md
+Created temporary directory for processing: /tmp/tmp.tiOfopPN7K
+Testing file read/write:
+Write test: SUCCESS
+Test
+Read test: SUCCESS
+Delete test: SUCCESS
+Processing batch starting at 1
+Processing: /tmp/repo-0a6lEy/DEPLOYMENT.md
+Processing: /tmp/repo-0a6lEy/README.md
+Processing: /tmp/repo-0a6lEy/RESTORATION.md
+Processing: /tmp/repo-0a6lEy/DOCUMENTATION.md
+Processing: /tmp/repo-0a6lEy/VERIFICATION.md
+Processing: /tmp/repo-0a6lEy/TESTING.md
+Processing: /tmp/repo-0a6lEy/src/app/api/github-auth.md
+Batch starting at 1 completed. Progress: 7/7 files processed
+Progress: 7/7 files processed (Errors: 7, Changed: 0)
+Final git operations
+Creating summary markdown file
+Cleaning up temporary files
+Processing summary:
+- Total files found: 7
+- Files processed: 7
+- Files changed: 0
+- Errors encountered: 7
+Completed processing files
