@@ -9,7 +9,8 @@ import {
   FEATURE_TEMPLATE,
   MILESTONE_DESCRIPTION_TEMPLATE,
   COMPLETION_COMMENT_TEMPLATE,
-  INITIAL_REPLY_TEMPLATE
+  INITIAL_REPLY_TEMPLATE,
+  MILESTONE_CREATED_TEMPLATE
 } from "../templates/issue-templates";
 
 // Define interfaces for GitHub objects to improve type safety
@@ -179,7 +180,7 @@ interface IssueTemplate {
 
 // Export the plan implementation function
 export async function runPlanTask(payload: GitHubContext, ctx: any) {
-  logger.info("Starting comprehensive repository plan task", { payload });
+  logger.info("Starting repository plan task - creating milestone only", { payload });
   const { owner, repo, issueNumber, installationId } = payload;
 
   try {
@@ -198,30 +199,22 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     logger.info("Phase 2: Starting comprehensive analysis");
     const analysis = await performComprehensiveAnalysis(repositoryContent);
     
-    // Phase 3: Create GitHub Milestone
+    // Phase 3: Create GitHub Milestone ONLY
     logger.info("Phase 3: Creating GitHub milestone");
     const milestone = await createProjectMilestone(octokit, owner, repo, analysis);
     
-    // Phase 4: Generate Issues
-    logger.info("Phase 4: Generating GitHub issues");
-    const issues = await generateIssuesFromAnalysis(analysis, milestone.number);
+    // Post milestone URL as response (sole response per requirements)
+    await postMilestoneUrlComment(octokit, owner, repo, issueNumber, milestone);
     
-    // Phase 5: Create Issues and Validation
-    logger.info("Phase 5: Creating issues and validation");
-    const createdIssues = await createGitHubIssues(octokit, owner, repo, issues);
-    
-    // Post completion comment
-    await postCompletionComment(octokit, owner, repo, issueNumber, milestone, createdIssues);
-    
-    logger.info("Plan task completed successfully", { 
+    logger.info("Plan task completed - milestone created", { 
       milestoneId: milestone.id,
-      issuesCreated: createdIssues.length 
+      milestoneUrl: milestone.html_url
     });
     
     return { 
       success: true, 
       milestone: milestone,
-      issuesCreated: createdIssues.length 
+      phase: 'milestone_created'
     };
     
   } catch (error) {
@@ -898,6 +891,26 @@ async function createGitHubIssues(octokit: Octokit, owner: string, repo: string,
   });
 
   return createdIssues;
+}
+
+// Post milestone URL comment (sole response per requirements)
+async function postMilestoneUrlComment(
+  octokit: Octokit, 
+  owner: string, 
+  repo: string, 
+  issueNumber: number,
+  milestone: GitHubMilestone
+): Promise<void> {
+  const milestoneUrl = milestone.html_url;
+  
+  await octokit.issues.createComment({
+    owner,
+    repo,
+    issue_number: issueNumber,
+    body: MILESTONE_CREATED_TEMPLATE(milestoneUrl)
+  });
+
+  logger.info("Posted milestone URL comment", { milestoneUrl });
 }
 
 // Post completion comment

@@ -173,3 +173,5 @@ I'm analyzing your repository to create a comprehensive development plan. This w
 - 📋 Organized milestone with issues
 
 This process may take a few minutes...`;
+
+export const MILESTONE_CREATED_TEMPLATE = (milestoneUrl: string): string => milestoneUrl;

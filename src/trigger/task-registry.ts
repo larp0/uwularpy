@@ -48,3 +48,13 @@ export const planTask = task({
     return await runPlanTask(payload, ctx);
   },
 });
+
+export const planApprovalTask = task({
+  id: "plan-approval-task",
+  machine: "large-2x",
+  maxDuration: 600, // 10 minutes for milestone decomposition
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runPlanApprovalTask } = await import("./plan-approval-implementation");
+    return await runPlanApprovalTask(payload, ctx);
+  },
+});
