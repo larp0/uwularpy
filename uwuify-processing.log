@@ -1,0 +1,46 @@
+Repository directory: /tmp/repo-CyXio8
+UwUify binary path: /app/src/lib/bin/uwuify
+Testing uwuify binary...
+uwu 
+Finding all markdown files...
+Found 16 markdown files to process
+Sample of files to process:
+/tmp/repo-CyXio8/AT_L_PLAN_TROUBLESHOOTING_FLOWCHART.md
+/tmp/repo-CyXio8/ENHANCED_WORKFLOW_SOLUTION.md
+/tmp/repo-CyXio8/MILESTONE_TITLE_FIX.md
+/tmp/repo-CyXio8/DEPLOYMENT.md
+/tmp/repo-CyXio8/README.md
+Created temporary directory for processing: /tmp/tmp.FLS4Oxrg3v
+Testing file read/write:
+Write test: SUCCESS
+Test
+Read test: SUCCESS
+Delete test: SUCCESS
+Processing batch starting at 1
+Processing: /tmp/repo-CyXio8/AT_L_PLAN_TROUBLESHOOTING_FLOWCHART.md
+Processing: /tmp/repo-CyXio8/ENHANCED_WORKFLOW_SOLUTION.md
+Processing: /tmp/repo-CyXio8/MILESTONE_TITLE_FIX.md
+Processing: /tmp/repo-CyXio8/DEPLOYMENT.md
+Processing: /tmp/repo-CyXio8/README.md
+Processing: /tmp/repo-CyXio8/src/app/api/github-auth.md
+Processing: /tmp/repo-CyXio8/GPT_ENHANCEMENT_INTEGRATION_SUMMARY.md
+Processing: /tmp/repo-CyXio8/RESTORATION.md
+Processing: /tmp/repo-CyXio8/MILESTONE_ATTACHMENT_SOLUTION.md
+Processing: /tmp/repo-CyXio8/DOCUMENTATION.md
+Processing: /tmp/repo-CyXio8/AT_L_PLAN_COMPLETE_DOCUMENTATION.md
+Processing: /tmp/repo-CyXio8/TESTING.md
+Processing: /tmp/repo-CyXio8/VERIFICATION.md
+Processing: /tmp/repo-CyXio8/ENHANCED_PLANNING_SUMMARY.md
+Processing: /tmp/repo-CyXio8/MILESTONE_FIX_COMPLETION.md
+Processing: /tmp/repo-CyXio8/GPT_ENHANCED_USAGE_GUIDE.md
+Batch starting at 1 completed. Progress: 16/16 files processed
+Progress: 16/16 files processed (Errors: 16, Changed: 0)
+Final git operations
+Creating summary markdown file
+Cleaning up temporary files
+Processing summary:
+- Total files found: 16
+- Files processed: 16
+- Files changed: 0
+- Errors encountered: 16
+Completed processing files
