@@ -81,7 +81,7 @@ export async function codexRepository(
         
         // Call OpenAI API with the prompt
         const response = await openai.chat.completions.create({
-          model: "gpt-4", // Use GPT-4 instead of Codex for better results
+          model: "gpt-4.1-mini", // Use GPT-4 instead of Codex for better results
           messages: [
             {
               role: "system",
