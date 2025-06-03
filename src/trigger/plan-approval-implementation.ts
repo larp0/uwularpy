@@ -102,11 +102,58 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
     // Generate issues from the milestone analysis
     const issues = generateIssuesFromAnalysis(analysis, milestone.number);
     
+    // Validate milestone number before creating issues
+    if (!milestone.number || milestone.number <= 0) {
+      logger.error("Invalid milestone number", { milestoneNumber: milestone.number });
+      await octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        body: "❌ **Invalid Milestone**\n\nThe milestone found has an invalid number. Please try creating a new plan."
+      });
+      return { success: false, error: "Invalid milestone number" };
+    }
+
+    logger.info("Creating issues for milestone", { 
+      milestoneNumber: milestone.number, 
+      milestoneTitle: milestone.title,
+      issueCount: issues.length 
+    });
+    
     // Create issues and link them to the milestone
     const createdIssues = await createGitHubIssues(octokit, owner, repo, issues, milestone.number);
     
+    // Verify all issues are properly attached to the milestone
+    const attachmentResults = await verifyMilestoneAttachments(octokit, owner, repo, createdIssues, milestone.number);
+    
+    logger.info("Milestone attachment verification completed", {
+      totalIssues: createdIssues.length,
+      successfulAttachments: attachmentResults.successful,
+      failedAttachments: attachmentResults.failed
+    });
+    
+    // Attempt to fix failed attachments
+    let finalAttachmentResults = attachmentResults;
+    if (attachmentResults.failed > 0) {
+      logger.info("Attempting to fix failed milestone attachments");
+      const fixedCount = await retryMilestoneAttachments(octokit, owner, repo, attachmentResults.failures, milestone.number);
+      
+      // Update results
+      finalAttachmentResults = {
+        successful: attachmentResults.successful + fixedCount,
+        failed: attachmentResults.failed - fixedCount,
+        failures: attachmentResults.failures.slice(fixedCount) // Remove fixed issues
+      };
+      
+      logger.info("Milestone attachment retry completed", {
+        originalFailed: attachmentResults.failed,
+        fixed: fixedCount,
+        remainingFailed: finalAttachmentResults.failed
+      });
+    }
+    
     // Post task overview and ask for confirmation
-    await postTaskOverviewAndConfirmation(octokit, owner, repo, issueNumber, milestone, createdIssues);
+    await postTaskOverviewAndConfirmation(octokit, owner, repo, issueNumber, milestone, createdIssues, finalAttachmentResults);
     
     logger.info("Plan approval task completed", { 
       milestoneId: milestone.id,
@@ -328,6 +375,11 @@ async function createGitHubIssues(
       const issueIndex = i + batchIndex;
       
       try {
+        logger.info(`Creating issue ${issueIndex + 1}/${issues.length} with milestone ${milestoneNumber}`, {
+          title: issueTemplate.title,
+          milestone: milestoneNumber
+        });
+
         const { data: issue } = await octokit.issues.create({
           owner,
           repo,
@@ -337,10 +389,49 @@ async function createGitHubIssues(
           milestone: milestoneNumber
         });
 
+        // Verify milestone attachment immediately after creation
+        if (issue.milestone?.number !== milestoneNumber) {
+          logger.warn(`Milestone attachment failed during creation`, {
+            expected: milestoneNumber,
+            actual: issue.milestone?.number,
+            issueNumber: issue.number
+          });
+          
+          // Attempt immediate fix
+          try {
+            await octokit.issues.update({
+              owner,
+              repo,
+              issue_number: issue.number,
+              milestone: milestoneNumber
+            });
+            
+            // Re-fetch to verify fix
+            const { data: fixedIssue } = await octokit.issues.get({
+              owner,
+              repo,
+              issue_number: issue.number
+            });
+            
+            if (fixedIssue.milestone?.number === milestoneNumber) {
+              logger.info(`✅ Fixed milestone attachment immediately for issue #${issue.number}`);
+              // Update the issue object with fixed milestone
+              issue.milestone = fixedIssue.milestone;
+            } else {
+              logger.error(`❌ Failed to fix milestone attachment for issue #${issue.number}`);
+            }
+          } catch (fixError) {
+            logger.error(`Error attempting immediate milestone fix for issue #${issue.number}`, { fixError });
+          }
+        } else {
+          logger.info(`✅ Issue ${issue.number} successfully attached to milestone ${milestoneNumber}`);
+        }
+
         logger.info(`Created issue ${issueIndex + 1}/${issues.length}`, { 
           issueNumber: issue.number, 
           title: issue.title,
-          milestone: milestoneNumber
+          milestone: milestoneNumber,
+          attachedMilestone: issue.milestone?.number
         });
 
         return issue as GitHubIssue;
@@ -378,6 +469,115 @@ async function createGitHubIssues(
   return createdIssues;
 }
 
+/**
+ * Verifies that all created issues are properly attached to the milestone
+ * @param octokit GitHub API client
+ * @param owner Repository owner
+ * @param repo Repository name
+ * @param issues Created issues to verify
+ * @param expectedMilestoneNumber Expected milestone number
+ * @returns Object with successful and failed attachment counts
+ */
+async function verifyMilestoneAttachments(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  issues: GitHubIssue[],
+  expectedMilestoneNumber: number
+): Promise<{ successful: number; failed: number; failures: Array<{ issueNumber: number; title: string }> }> {
+  logger.info("Verifying milestone attachments", { 
+    issueCount: issues.length, 
+    expectedMilestone: expectedMilestoneNumber 
+  });
+
+  let successful = 0;
+  let failed = 0;
+  const failures: Array<{ issueNumber: number; title: string }> = [];
+
+  for (const issue of issues) {
+    try {
+      // Re-fetch the issue to get current milestone state
+      const { data: currentIssue } = await octokit.issues.get({
+        owner,
+        repo,
+        issue_number: issue.number
+      });
+
+      if (currentIssue.milestone?.number === expectedMilestoneNumber) {
+        successful++;
+        logger.debug(`✅ Issue #${issue.number} correctly attached to milestone ${expectedMilestoneNumber}`);
+      } else {
+        failed++;
+        failures.push({ issueNumber: issue.number, title: issue.title });
+        logger.warn(`❌ Issue #${issue.number} not attached to milestone ${expectedMilestoneNumber}`, {
+          currentMilestone: currentIssue.milestone?.number,
+          expectedMilestone: expectedMilestoneNumber
+        });
+      }
+    } catch (error) {
+      failed++;
+      failures.push({ issueNumber: issue.number, title: issue.title });
+      logger.error(`Error verifying issue #${issue.number}`, { error });
+    }
+  }
+
+  return { successful, failed, failures };
+}
+
+/**
+ * Attempts to fix milestone attachment for issues that failed
+ * @param octokit GitHub API client
+ * @param owner Repository owner
+ * @param repo Repository name
+ * @param failedIssues Issues that failed milestone attachment
+ * @param milestoneNumber Target milestone number
+ * @returns Number of successfully fixed attachments
+ */
+async function retryMilestoneAttachments(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  failedIssues: Array<{ issueNumber: number; title: string }>,
+  milestoneNumber: number
+): Promise<number> {
+  logger.info("Attempting to fix milestone attachments", { 
+    failedCount: failedIssues.length, 
+    targetMilestone: milestoneNumber 
+  });
+
+  let fixed = 0;
+  
+  for (const failedIssue of failedIssues) {
+    try {
+      // Update the issue to attach it to the milestone
+      await octokit.issues.update({
+        owner,
+        repo,
+        issue_number: failedIssue.issueNumber,
+        milestone: milestoneNumber
+      });
+      
+      // Verify the fix worked
+      const { data: updatedIssue } = await octokit.issues.get({
+        owner,
+        repo,
+        issue_number: failedIssue.issueNumber
+      });
+      
+      if (updatedIssue.milestone?.number === milestoneNumber) {
+        fixed++;
+        logger.info(`✅ Fixed milestone attachment for issue #${failedIssue.issueNumber}`);
+      } else {
+        logger.warn(`❌ Failed to fix milestone attachment for issue #${failedIssue.issueNumber}`);
+      }
+    } catch (error) {
+      logger.error(`Error fixing milestone attachment for issue #${failedIssue.issueNumber}`, { error });
+    }
+  }
+  
+  return fixed;
+}
+
 // Post task overview and ask for confirmation
 async function postTaskOverviewAndConfirmation(
   octokit: Octokit, 
@@ -385,7 +585,8 @@ async function postTaskOverviewAndConfirmation(
   repo: string, 
   issueNumber: number,
   milestone: GitHubMilestone,
-  createdIssues: GitHubIssue[]
+  createdIssues: GitHubIssue[],
+  attachmentResults?: { successful: number; failed: number; failures: Array<{ issueNumber: number; title: string }> }
 ): Promise<void> {
   
   // Sort issues by priority for better presentation
@@ -400,9 +601,22 @@ async function postTaskOverviewAndConfirmation(
     return aPriority - bPriority;
   });
 
+  // Build milestone attachment status message
+  let attachmentStatus = '';
+  if (attachmentResults) {
+    if (attachmentResults.failed > 0) {
+      attachmentStatus = `\n\n⚠️ **Milestone Attachment Warning:** ${attachmentResults.failed} out of ${createdIssues.length} issues may not be properly linked to the milestone. This could affect project tracking.`;
+      if (attachmentResults.failures.length > 0) {
+        attachmentStatus += `\n\nIssues with attachment issues:\n${attachmentResults.failures.map(f => `- #${f.issueNumber}: ${f.title}`).join('\n')}`;
+      }
+    } else {
+      attachmentStatus = `\n\n✅ **All ${attachmentResults.successful} issues successfully linked to milestone.**`;
+    }
+  }
+
   const overviewComment = `## ✅ Issues Created Successfully!
 
-I've decomposed the milestone into ${createdIssues.length} actionable GitHub issues and linked them to the milestone.
+I've decomposed the milestone into ${createdIssues.length} actionable GitHub issues and linked them to the milestone.${attachmentStatus}
 
 ### 📋 Task Overview (Execution Order)
 
