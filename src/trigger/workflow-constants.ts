@@ -8,7 +8,7 @@ export const BOT_USERNAME = process.env.BOT_USERNAME || 'uwularpy';
 export const REVIEW_COMMAND = '@l r';
 
 // GitHub Copilot configuration
-export const COPILOT_USERNAME = 'copilot';
+export const COPILOT_USERNAME = '@copilot';
 
 // Rate limiting and timing
 export const DEFAULT_RATE_LIMIT_DELAY = 1000; // 1 second between API calls
@@ -17,16 +17,16 @@ export const MAX_RETRIES = 3;
 export const RETRY_BASE_DELAY = 1000;
 
 // Webhook processing limits (DoS protection)
-export const MAX_COMMENT_PROCESSING_TIME = 30000; // 30 seconds
-export const MAX_PR_PROCESSING_TIME = 60000; // 60 seconds
-export const MAX_WORKFLOW_EXECUTION_TIME = 300000; // 5 minutes
+export const MAX_COMMENT_PROCESSING_TIME = 300000; // 30 seconds
+export const MAX_PR_PROCESSING_TIME = 600000; // 60 seconds
+export const MAX_WORKFLOW_EXECUTION_TIME = 3000000; // 5 minutes
 
 // Security and validation limits
 export const MAX_COMMENT_LENGTH = 10000;
 export const MAX_PR_TITLE_LENGTH = 300;
 export const MAX_ISSUE_TITLE_LENGTH = 300;
 export const MAX_MILESTONE_TITLE_LENGTH = 300;
-export const MAX_REPO_ANALYSIS_FILES = 50; // Limit number of files analyzed
+export const MAX_REPO_ANALYSIS_FILES = 250; // Limit number of files analyzed
 
 // Text similarity threshold for PR-issue matching
 export const TITLE_SIMILARITY_THRESHOLD = 0.2; // 20% minimum

@@ -14,7 +14,9 @@ import {
   MILESTONE_DESCRIPTION_TEMPLATE,
   COMPLETION_COMMENT_TEMPLATE,
   INITIAL_REPLY_TEMPLATE,
-  MILESTONE_CREATED_TEMPLATE
+  MILESTONE_CREATED_TEMPLATE,
+  PLAN_REFINEMENT_TEMPLATE,
+  PLAN_CANCELLED_TEMPLATE
 } from "../templates/issue-templates";
 
 // Define interfaces for GitHub objects to improve type safety
@@ -582,12 +584,12 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              model: "gpt-4",
+              model: "gpt-4.1-mini",
               messages: [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
               ],
-              max_tokens: 2000,
+              max_tokens: 32_768,
               temperature: 0.7
             }),
             signal: controller.signal
@@ -640,7 +642,7 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
 
     logger.info("Received analysis from OpenAI", { 
       contentLength: analysisText.length,
-      modelUsed: "gpt-4"
+      modelUsed: "gpt-4.1-mini"
     });
 
     // Parse JSON response with error handling

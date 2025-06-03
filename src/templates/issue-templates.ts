@@ -174,4 +174,64 @@ I'm analyzing your repository to create a comprehensive development plan. This w
 
 This process may take a few minutes...`;
 
-export const MILESTONE_CREATED_TEMPLATE = (milestoneUrl: string): string => milestoneUrl;
+export const MILESTONE_CREATED_TEMPLATE = (milestoneUrl: string): string => `
+## 🎯 AI Development Plan Created!
+
+I've analyzed your repository and created a comprehensive development milestone with prioritized tasks.
+
+### 📍 **Your Milestone:** [View AI Development Plan](${milestoneUrl})
+
+## 🚀 **Next Steps:**
+
+### **Option 1: Approve & Create Issues (Recommended)**
+Comment: \`@l approve\` to automatically create all planned issues and attach them to this milestone.
+
+### **Option 2: Review & Refine First**
+- Click the milestone link above to review the detailed plan
+- Comment: \`@l refine [your feedback]\` to modify the plan based on your needs
+- Example: \`@l refine focus more on security improvements\`
+
+### **Option 3: Cancel Plan**
+Comment: \`@l cancel\` if you want to reject this plan entirely.
+
+## 📋 **What's in Your Plan:**
+The milestone contains a detailed analysis with:
+- 🚨 **Critical fixes** - Security & performance issues requiring immediate attention
+- 📦 **Missing components** - Essential features your project needs
+- 🔧 **Improvements** - Code quality and technical debt items  
+- 💡 **Innovation ideas** - New features to enhance your project
+
+## ⚡ **Quick Approval:**
+Ready to proceed? Just comment \`@l approve\` and I'll create all the issues automatically!
+
+---
+*Powered by AI Development Planning* 🤖`;
+
+export const PLAN_REFINEMENT_TEMPLATE = (originalPlan: string, userFeedback: string): string => `
+## 🔄 Plan Refinement Requested
+
+**Original Plan:** [View Milestone](${originalPlan})
+
+**Your Feedback:** "${userFeedback}"
+
+I'm updating the development plan based on your feedback. This may take a moment...
+
+### Next Steps:
+- I'll analyze your feedback and update the milestone
+- You can review the updated plan 
+- Comment \`@l approve\` when ready to create issues
+- Or provide additional \`@l refine [feedback]\` for further changes
+`;
+
+export const PLAN_CANCELLED_TEMPLATE = (): string => `
+## ❌ Development Plan Cancelled
+
+The AI development plan has been cancelled as requested.
+
+### Want to try again?
+- Comment \`@l plan [your specific need]\` to create a new plan
+- Example: \`@l plan add user authentication\`
+- Or just \`@l plan\` for a general analysis
+
+I'm here when you're ready! 🤖
+`;

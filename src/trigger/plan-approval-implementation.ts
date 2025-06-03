@@ -99,8 +99,8 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
     // Parse milestone description to extract analysis
     const analysis = parseMilestoneDescription(milestone.description || '');
     
-    // Generate issues from the milestone analysis
-    const issues = generateIssuesFromAnalysis(analysis, milestone.number);
+    // Generate basic issues from the milestone analysis
+    const basicIssues = generateIssuesFromAnalysis(analysis, milestone.number);
     
     // Validate milestone number before creating issues
     if (!milestone.number || milestone.number <= 0) {
@@ -114,7 +114,17 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
       return { success: false, error: "Invalid milestone number" };
     }
 
-    logger.info("Creating issues for milestone", { 
+    // Extract repository context for better enhancement suggestions
+    const repositoryContext = await extractRepositoryContext(octokit, owner, repo, analysis);
+
+    // Enhance issues with detailed implementation guidance using GPT-4.1-nano
+    logger.info("Enhancing issues with detailed implementation guidance", { 
+      issueCount: basicIssues.length 
+    });
+    
+    const issues = await enhanceIssueDetails(basicIssues, repositoryContext);
+
+    logger.info("Creating enhanced issues for milestone", { 
       milestoneNumber: milestone.number, 
       milestoneTitle: milestone.title,
       issueCount: issues.length 
@@ -352,6 +362,174 @@ function generateIssuesFromAnalysis(analysis: PlanAnalysis, milestoneNumber: num
   return issues;
 }
 
+/**
+ * Enhances issue bodies with detailed implementation guidance using GPT-4.1-nano
+ * @param issues Array of basic issue templates to enhance
+ * @param repositoryContext Context about the repository for better suggestions
+ * @returns Enhanced issues with detailed, actionable bodies
+ */
+async function enhanceIssueDetails(
+  issues: IssueTemplate[],
+  repositoryContext: string = ''
+): Promise<IssueTemplate[]> {
+  logger.info("Enhancing issue bodies with GPT-4.1-nano", { issueCount: issues.length });
+
+  const enhancedIssues: IssueTemplate[] = [];
+
+  // Process issues in batches to manage API calls efficiently
+  const BATCH_SIZE = 3;
+  const BATCH_DELAY_MS = 1000;
+
+  for (let i = 0; i < issues.length; i += BATCH_SIZE) {
+    const batch = issues.slice(i, i + BATCH_SIZE);
+    
+    const batchPromises = batch.map(async (issue, batchIndex) => {
+      const issueIndex = i + batchIndex;
+      
+      try {
+        logger.info(`Enhancing issue ${issueIndex + 1}/${issues.length}`, { title: issue.title });
+        
+        const enhancedBody = await enhanceIssueBody(issue, repositoryContext);
+        
+        return {
+          ...issue,
+          body: enhancedBody
+        };
+        
+      } catch (error) {
+        logger.error(`Failed to enhance issue ${issueIndex + 1}, using original`, { 
+          title: issue.title,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        
+        // Return original issue if enhancement fails
+        return issue;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    enhancedIssues.push(...batchResults);
+
+    // Add delay between batches
+    if (i + BATCH_SIZE < issues.length) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+    }
+  }
+
+  logger.info("Issue enhancement completed", { 
+    originalCount: issues.length,
+    enhancedCount: enhancedIssues.length
+  });
+
+  return enhancedIssues;
+}
+
+/**
+ * Enhances a single issue body using GPT-4.1-nano
+ * @param issue The issue template to enhance
+ * @param repositoryContext Additional context about the repository
+ * @returns Enhanced issue body with detailed implementation guidance
+ */
+async function enhanceIssueBody(
+  issue: IssueTemplate,
+  repositoryContext: string
+): Promise<string> {
+  const systemPrompt = `You are a senior software engineer and technical writer creating detailed, actionable GitHub issue descriptions. Your task is to enhance basic issue descriptions with comprehensive implementation guidance.
+
+Transform the basic issue into a professional, detailed GitHub issue that includes:
+
+1. **Clear Problem Statement** - What exactly needs to be done and why
+2. **Technical Context** - Background information and current state
+3. **Detailed Implementation Steps** - Step-by-step breakdown of the work
+4. **Technical Specifications** - Specific requirements, APIs, patterns to follow
+5. **Acceptance Criteria** - Clear, testable conditions for completion
+6. **Testing Requirements** - What testing is needed
+7. **Documentation Needs** - What docs should be updated
+8. **Potential Challenges** - Known risks or complex areas
+9. **Resources & References** - Helpful links, docs, or examples
+
+Format using proper Markdown with clear sections, code blocks where relevant, and checkbox lists for actionable items.
+
+Keep the tone professional but approachable. Make it detailed enough that any competent developer could pick up the issue and implement it successfully.`;
+
+  const userPrompt = `Enhance this GitHub issue for better implementation:
+
+**Issue Title:** ${issue.title}
+**Priority:** ${issue.priority}
+**Labels:** ${issue.labels.join(', ')}
+
+**Current Description:**
+${issue.body}
+
+**Repository Context:**
+${repositoryContext || 'General software development project'}
+
+Please transform this into a comprehensive, actionable GitHub issue with detailed implementation guidance.`;
+
+  try {
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      throw new Error("OpenAI API key not configured");
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini", // GPT-4o-mini (nano equivalent)
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          max_tokens: 21500,
+          temperature: 0.7
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const enhancedContent = data.choices?.[0]?.message?.content;
+
+      if (!enhancedContent) {
+        throw new Error("No content received from OpenAI");
+      }
+
+      logger.info("Successfully enhanced issue body", { 
+        originalLength: issue.body.length,
+        enhancedLength: enhancedContent.length,
+        title: issue.title
+      });
+
+      return enhancedContent;
+      
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+  } catch (error) {
+    logger.error("Failed to enhance issue body with GPT-4.1-nano", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      title: issue.title
+    });
+    
+    // Return original body if enhancement fails
+    return issue.body;
+  }
+}
+
 // Create GitHub Issues with milestone linking
 async function createGitHubIssues(
   octokit: Octokit, 
@@ -576,6 +754,119 @@ async function retryMilestoneAttachments(
   }
   
   return fixed;
+}
+
+// Extracts repository context for better enhancement suggestions
+async function extractRepositoryContext(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  analysis: PlanAnalysis
+): Promise<string> {
+  try {
+    logger.info("Extracting repository context for enhancement");
+
+    // Get repository information
+    const { data: repository } = await octokit.repos.get({
+      owner,
+      repo
+    });
+
+    // Get package.json to understand the tech stack
+    let packageJsonContent = '';
+    try {
+      const { data: packageJson } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: 'package.json'
+      });
+      
+      if ('content' in packageJson) {
+        const content = Buffer.from(packageJson.content, 'base64').toString('utf8');
+        const parsed = JSON.parse(content);
+        packageJsonContent = `
+**Tech Stack:**
+- Framework/Runtime: ${parsed.dependencies ? Object.keys(parsed.dependencies).slice(0, 5).join(', ') : 'Unknown'}
+- Dev Dependencies: ${parsed.devDependencies ? Object.keys(parsed.devDependencies).slice(0, 3).join(', ') : 'None'}
+- Scripts: ${parsed.scripts ? Object.keys(parsed.scripts).join(', ') : 'None'}`;
+      }
+    } catch (error) {
+      logger.debug("Could not fetch package.json", { error });
+    }
+
+    // Get README.md for project overview
+    let readmeContent = '';
+    try {
+      const { data: readme } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: 'README.md'
+      });
+      
+      if ('content' in readme) {
+        const content = Buffer.from(readme.content, 'base64').toString('utf8');
+        // Extract first few paragraphs for context
+        const firstParagraphs = content.split('\n').slice(0, 10).join('\n');
+        readmeContent = `
+**Project Overview:**
+${firstParagraphs.slice(0, 500)}${firstParagraphs.length > 500 ? '...' : ''}`;
+      }
+    } catch (error) {
+      logger.debug("Could not fetch README.md", { error });
+    }
+
+    // Get recent commits to understand development patterns
+    let recentActivity = '';
+    try {
+      const { data: commits } = await octokit.repos.listCommits({
+        owner,
+        repo,
+        per_page: 5
+      });
+      
+      const commitMessages = commits.map(commit => commit.commit.message).join(', ');
+      recentActivity = `
+**Recent Development:**
+- Repository: ${repository.full_name}
+- Language: ${repository.language || 'Unknown'}
+- Recent commits: ${commitMessages.slice(0, 200)}${commitMessages.length > 200 ? '...' : ''}`;
+    } catch (error) {
+      logger.debug("Could not fetch recent commits", { error });
+    }
+
+    const context = `
+**Repository Context for ${owner}/${repo}:**
+${repository.description ? `- Description: ${repository.description}` : ''}
+- Primary Language: ${repository.language || 'Unknown'}
+- Repository Size: ${repository.size} KB
+- Open Issues: ${repository.open_issues_count}
+${packageJsonContent}
+${readmeContent}
+${recentActivity}
+
+**Plan Analysis Context:**
+- Repository Overview: ${analysis.repositoryOverview}
+- Focus Areas: ${[...analysis.missingComponents, ...analysis.criticalFixes].slice(0, 3).join(', ')}
+    `.trim();
+
+    logger.info("Repository context extracted successfully", { 
+      contextLength: context.length,
+      hasPackageJson: packageJsonContent.length > 0,
+      hasReadme: readmeContent.length > 0
+    });
+
+    return context;
+
+  } catch (error) {
+    logger.warn("Failed to extract repository context, using minimal context", { error });
+    
+    // Return minimal context on failure
+    return `
+**Repository Context:**
+- Repository: ${owner}/${repo}
+- Focus Areas: ${analysis.repositoryOverview}
+    `.trim();
+  }
 }
 
 // Post task overview and ask for confirmation
