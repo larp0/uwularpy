@@ -4,6 +4,7 @@ export interface ParsedCommand {
   command: string;
   fullText: string;
   isMention: boolean;
+  userQuery?: string; // Added to capture user-specific problems/queries
 }
 
 /**
@@ -87,10 +88,22 @@ export function parseCommand(comment: string): ParsedCommand {
     };
   }
 
+  // Extract user query for plan commands
+  let userQuery = '';
+  const planCommandMatch = textAfterMention.match(/^(plan|planning|analyze)\s+(.+)$/i);
+  const refineCommandMatch = textAfterMention.match(/^(refine|revise|modify|update|change|edit)\s+(.+)$/i);
+  
+  if (planCommandMatch) {
+    userQuery = planCommandMatch[2].trim();
+  } else if (refineCommandMatch) {
+    userQuery = refineCommandMatch[2].trim();
+  }
+
   return {
     command: textAfterMention.trim().toLowerCase(),
     fullText: textAfterMention,
-    isMention: true
+    isMention: true,
+    userQuery
   };
 }
 
@@ -116,6 +129,16 @@ export function getTaskType(parsedCommand: ParsedCommand): string | null {
   // Check for approval patterns first
   if (isApprovalCommand(normalizedCommand)) {
     return 'plan-approval-task';
+  }
+  
+  // Check for refinement patterns
+  if (isRefinementCommand(normalizedCommand)) {
+    return 'plan-refinement-task';
+  }
+  
+  // Check for cancellation patterns  
+  if (isCancellationCommand(normalizedCommand)) {
+    return 'plan-cancellation-task';
   }
   
   // Check for execution confirmation patterns
@@ -154,6 +177,42 @@ function isApprovalCommand(command: string): boolean {
   ];
   
   return approvalPatterns.includes(command);
+}
+
+/**
+ * Checks if a command is a refinement command for milestone modification
+ * @param command The normalized command to check
+ * @returns true if the command is a refinement request
+ */
+function isRefinementCommand(command: string): boolean {
+  const refinementPatterns = [
+    'refine',
+    'revise', 
+    'modify',
+    'update',
+    'change',
+    'edit'
+  ];
+  
+  return refinementPatterns.includes(command);
+}
+
+/**
+ * Checks if a command is a cancellation command for milestone rejection
+ * @param command The normalized command to check
+ * @returns true if the command is a cancellation request
+ */
+function isCancellationCommand(command: string): boolean {
+  const cancellationPatterns = [
+    'cancel',
+    'reject',
+    'no',
+    'n',
+    'abort',
+    'stop'
+  ];
+  
+  return cancellationPatterns.includes(command);
 }
 
 /**

@@ -182,6 +182,23 @@ interface IssueTemplate {
   priority: typeof ISSUE_PRIORITIES[keyof typeof ISSUE_PRIORITIES];
 }
 
+/**
+ * Extracts user query from plan command message
+ * @param message The full message from the command
+ * @returns The user query or empty string if not found
+ */
+function extractUserQueryFromMessage(message: string): string {
+  if (!message) return '';
+  
+  // Look for plan command followed by user query
+  const planCommandMatch = message.match(/^(plan|planning|analyze)\s+(.+)$/i);
+  if (planCommandMatch) {
+    return planCommandMatch[2].trim();
+  }
+  
+  return '';
+}
+
 // Export the plan implementation function
 export async function runPlanTask(payload: GitHubContext, ctx: any) {
   logger.info("Starting repository plan task - creating milestone only", { payload });
@@ -198,6 +215,10 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     // Create authenticated Octokit
     const octokit = await createAuthenticatedOctokit(installationId);
     
+    // Extract user query from the message if available
+    const userQuery = extractUserQueryFromMessage(payload.message || '');
+    logger.info("Extracted user query", { userQuery: userQuery || 'none' });
+    
     // Post an immediate reply comment
     await postReplyComment(octokit, owner, repo, issueNumber);
     logger.info("Posted initial reply comment");
@@ -208,7 +229,7 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     
     // Phase 2: Comprehensive Analysis
     logger.info("Phase 2: Starting comprehensive analysis");
-    const analysis = await performComprehensiveAnalysis(repositoryContent);
+    const analysis = await performComprehensiveAnalysis(repositoryContent, userQuery);
     
     // Phase 3: Create GitHub Milestone ONLY
     logger.info("Phase 3: Creating GitHub milestone");
@@ -461,35 +482,83 @@ ${commits.map((commit: any) => `- ${commit.sha.slice(0, 7)}: ${commit.commit.mes
 }
 
 // Phase 2: Comprehensive Analysis using LLM with enhanced security and reliability
-async function performComprehensiveAnalysis(repositoryContent: string): Promise<PlanAnalysis> {
+async function performComprehensiveAnalysis(repositoryContent: string, userQuery?: string): Promise<PlanAnalysis> {
   logger.info("Starting LLM-powered comprehensive analysis");
   
   const config = getPlanConfig();
   
-  const systemPrompt = `You are an expert software architect and project manager. Analyze the provided repository and generate a comprehensive development plan.
+  const systemPrompt = `You are a seasoned Engineering Manager and Technical Architect with 15+ years of experience leading successful software delivery. Apply proven project management methodologies, realistic estimation practices, and critical business thinking to analyze this repository.
 
-Your analysis should identify:
-1. Missing Components - What essential features, files, or infrastructure is missing
-2. Critical Fixes - Security issues, bugs, broken functionality that needs immediate attention (ASAP)
-3. Required Improvements - Technical debt, code quality, performance, maintainability issues
-4. Innovation Ideas - 5 creative feature enhancements that would add significant value
+🎯 MANAGEMENT FRAMEWORK:
+- Apply the MoSCoW method (Must/Should/Could/Won't) for prioritization
+- Use T-shirt sizing (XS/S/M/L/XL) for effort estimation with actual hour ranges
+- Consider dependencies, blockers, and risk factors that could derail timelines
+- Think about team capacity, skill gaps, and knowledge transfer needs
+- Evaluate technical debt impact on velocity and maintainability
+- Assess market timing and competitive positioning for features
 
-Be specific, actionable, and prioritize based on impact and urgency. Each item should be detailed enough to become a GitHub issue.
+📊 REALISTIC ESTIMATION GUIDELINES:
+- XS (1-3 hours): Simple config changes, minor bug fixes
+- S (4-8 hours): Small features, straightforward refactoring  
+- M (1-3 days): Medium features, significant improvements
+- L (1-2 weeks): Complex features, major architectural changes
+- XL (3+ weeks): Platform rewrites, major system integrations
 
-Return your analysis in the following JSON format:
+🚨 CRITICAL THINKING APPROACH:
+- Question assumptions: What could go wrong? What are we missing?
+- Consider opportunity cost: What are we NOT doing by prioritizing this?
+- Evaluate ROI: Does effort justify expected business impact?
+- Think about maintenance burden: How will this age over time?
+- Consider team dynamics: Do we have the right skills? Knowledge gaps?
+- Assess external dependencies: Third-party APIs, infrastructure, compliance
+
+⚠️ RED FLAGS TO IDENTIFY:
+- Security vulnerabilities that could lead to breaches
+- Performance bottlenecks affecting user experience  
+- Scalability limitations preventing growth
+- Technical debt creating development friction
+- Missing testing/monitoring creating blind spots
+- Outdated dependencies with known vulnerabilities
+
+🎨 INNOVATION CRITERIA:
+- Market differentiation potential
+- User experience enhancement
+- Developer productivity gains
+- Revenue generation opportunities
+- Competitive advantage creation
+
+Return analysis with realistic timelines, clear dependencies, and honest assessment of risks:
+
 {
-  "repositoryOverview": "Brief 2-3 sentence summary of what this project does and its current state",
-  "missingComponents": ["Specific missing component 1", "Specific missing component 2", ...],
-  "criticalFixes": ["Critical issue that needs immediate attention", "Another urgent fix", ...],
-  "requiredImprovements": ["Technical debt item 1", "Code quality improvement", ...],
-  "innovationIdeas": ["Innovative feature idea 1", "Creative enhancement 2", ...]
+  "repositoryOverview": "Executive summary: what this does, current state, key challenges (2-3 sentences)",
+  "missingComponents": [
+    "Component description [Size: S-M, Priority: Must] - Business justification and risk if not addressed",
+    "Another missing piece [Size: L, Priority: Should] - Why this matters for product success"
+  ],
+  "criticalFixes": [
+    "Security/performance issue [Size: XS-S, Priority: Must, Risk: High] - Immediate business impact if unfixed",
+    "System reliability issue [Size: M, Priority: Must, Dependencies: Infrastructure team] - What could break"
+  ],
+  "requiredImprovements": [
+    "Technical debt item [Size: M, Priority: Should, ROI: High] - How this blocks future development",
+    "Code quality issue [Size: S-M, Priority: Could] - Long-term maintenance burden"
+  ],
+  "innovationIdeas": [
+    "Game-changing feature [Size: L-XL, Priority: Could, Market Impact: High] - Competitive advantage gained",
+    "UX enhancement [Size: M, Priority: Should, User Impact: Medium] - How this improves retention"
+  ]
 }
 
-Make each item specific and actionable. Include context about why each item is important.`;
+Be brutally honest about effort, realistic about timelines, and crystal clear about business justification. If something looks easy but you know it's not, call it out. If a feature sounds cool but has questionable ROI, say so.`;
 
   // Truncate repository content to prevent token limits
   const truncatedContent = truncateContent(repositoryContent, config.maxContentLength);
-  const userPrompt = `Analyze this repository:\n\n${truncatedContent}`;
+  // Construct user prompt with repository content and optional user query
+  let userPrompt = `Analyze this repository:\n\n${truncatedContent}`;
+  
+  if (userQuery && userQuery.trim()) {
+    userPrompt += `\n\n🎯 USER SPECIFIC REQUEST:\n"${userQuery.trim()}"\n\nPlease prioritize tasks that address this specific user need while maintaining the comprehensive analysis framework.`;
+  }
 
   try {
     // Validate OpenAI API key without logging it
