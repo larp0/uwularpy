@@ -737,6 +737,8 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
 }
 
 // Phase 3: Create GitHub Milestone
+// Uses unique timestamp-based title to prevent duplicate milestone errors
+// when multiple plans are created on the same day
 async function createProjectMilestone(octokit: Octokit, owner: string, repo: string, analysis: PlanAnalysis): Promise<GitHubMilestone> {
   logger.info("Creating GitHub milestone");
 
@@ -746,10 +748,15 @@ async function createProjectMilestone(octokit: Octokit, owner: string, repo: str
   const milestoneDescription = MILESTONE_DESCRIPTION_TEMPLATE(analysis, currentDate);
 
   try {
+    // Generate unique milestone title with timestamp and random component to avoid duplicates
+    const timestamp = currentDate.toISOString().replace(/:/g, '-').replace(/\./g, '-');
+    const randomSuffix = Math.random().toString(36).substr(2, 4); // 4 random characters
+    const uniqueTitle = `AI Development Plan - ${timestamp}-${randomSuffix}`;
+    
     const { data: milestone } = await octokit.issues.createMilestone({
       owner,
       repo,
-      title: `AI Development Plan - ${currentDate.toISOString().split('T')[0]}`,
+      title: uniqueTitle,
       description: milestoneDescription,
       due_on: dueDate.toISOString()
     });
