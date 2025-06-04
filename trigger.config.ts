@@ -12,7 +12,7 @@ export default defineConfig({
   retries: {
     enabledInDev: true,
     default: {
-      maxAttempts: 1,
+      maxAttempts: 0,
       minTimeoutInMs: 1000,
       maxTimeoutInMs: 10000,
       factor: 2,
@@ -22,6 +22,9 @@ export default defineConfig({
   dirs: ["./src/trigger"],
   // Add additionalFiles extension to include the uwuify binary
   build: {
+    env: {
+      NODE_VERSION: '23.0.0', // Specify the desired Node.js version here
+    },
     extensions: [
       additionalFiles({
         files: ["src/lib/bin/uwuify"]
