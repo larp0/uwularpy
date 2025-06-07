@@ -4,7 +4,7 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext, RepoStats } from "../services/task-types";
-import { uwuifyRepository, getTopContributorsByMergedPRs } from "../lib/binary-uwuify";
+import { uwuifyRepository, getTopContributorsByMergedPRs } from "../lib/uwuify";
 
 // Export the implementation function
 export async function runUwuifyTask(payload: GitHubContext, ctx: any) {
