@@ -120,9 +120,9 @@ describe('Command Parser', () => {
     //   expect(await getTaskType(parsed)).toBe('uwuify-repository');
     // });
 
-    it('should return codex-task for unknown commands', async () => {
+    it('should return null for unknown non-dev commands', async () => {
       const parsed = parseCommand('@uwularpy unknown-command');
-      expect(await getTaskType(parsed)).toBe('codex-task');
+      expect(await getTaskType(parsed)).toBeNull(); // Changed: non-dev commands should return null
     });
 
     it('should return null for non-mentions', async () => {
@@ -211,13 +211,64 @@ describe('Command Parser', () => {
       
       // Test commands that should NOT be approval
       const parsed3 = parseCommand('@l approves'); // not exact match
-      expect(await getTaskType(parsed3)).toBe('codex-task');
+      expect(await getTaskType(parsed3)).toBeNull(); // Changed: should return null for non-dev commands
       
       const parsed4 = parseCommand('@l approval'); // not exact match  
-      expect(await getTaskType(parsed4)).toBe('codex-task');
+      expect(await getTaskType(parsed4)).toBeNull(); // Changed: should return null for non-dev commands
       
       const parsed5 = parseCommand('@l not approve'); // contains but not approval
-      expect(await getTaskType(parsed5)).toBe('codex-task');
+      expect(await getTaskType(parsed5)).toBeNull(); // Changed: should return null for non-dev commands
+    });
+
+    // Tests for the new "@l dev " specific routing
+    it('should return codex-task only for "@l dev " commands', async () => {
+      const parsed1 = parseCommand('@l dev fix the issue');
+      expect(parsed1.isDevCommand).toBe(true);
+      expect(await getTaskType(parsed1)).toBe('codex-task');
+      
+      const parsed2 = parseCommand('@l dev implement feature');
+      expect(parsed2.isDevCommand).toBe(true);
+      expect(await getTaskType(parsed2)).toBe('codex-task');
+      
+      const parsed3 = parseCommand('@l DEV update code');
+      expect(parsed3.isDevCommand).toBe(true);
+      expect(await getTaskType(parsed3)).toBe('codex-task');
+    });
+
+    it('should return null for non-dev @l commands', async () => {
+      const parsed1 = parseCommand('@l help');
+      expect(parsed1.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed1)).toBeNull();
+      
+      const parsed2 = parseCommand('@l what is this');
+      expect(parsed2.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed2)).toBeNull();
+      
+      const parsed3 = parseCommand('@l unknown-command');
+      expect(parsed3.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed3)).toBeNull();
+      
+      const parsed4 = parseCommand('@l developing'); // should not match "dev "
+      expect(parsed4.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed4)).toBeNull();
+    });
+
+    it('should detect isDevCommand correctly in parseCommand', () => {
+      const result1 = parseCommand('@l dev fix this');
+      expect(result1.isDevCommand).toBe(true);
+      expect(result1.command).toBe('dev fix this');
+      
+      const result2 = parseCommand('@l help me');
+      expect(result2.isDevCommand).toBe(false);
+      expect(result2.command).toBe('help me');
+      
+      const result3 = parseCommand('@l developing'); // should not match
+      expect(result3.isDevCommand).toBe(false);
+      expect(result3.command).toBe('developing');
+      
+      const result4 = parseCommand('@l DEV fix this'); // case insensitive
+      expect(result4.isDevCommand).toBe(true);
+      expect(result4.command).toBe('dev fix this');
     });
   });
 });

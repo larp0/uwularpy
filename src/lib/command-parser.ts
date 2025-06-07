@@ -8,6 +8,7 @@ export interface ParsedCommand {
   userQuery?: string; // Added to capture user-specific problems/queries
   aiIntent?: string; // AI-classified intent
   aiConfidence?: number; // AI confidence score
+  isDevCommand?: boolean; // True if this is a "@l dev " command
 }
 
 /**
@@ -107,11 +108,15 @@ export function parseCommand(comment: string): ParsedCommand {
     userQuery = refineCommandMatch[2].trim();
   }
 
+  // Check if this is a "@l dev " command specifically
+  const isDevCommand = textAfterMention.toLowerCase().startsWith('dev ');
+
   return {
     command: textAfterMention.trim().toLowerCase(),
     fullText: textAfterMention,
     isMention: true,
-    userQuery
+    userQuery,
+    isDevCommand
   };
 }
 
@@ -130,7 +135,7 @@ export async function getTaskType(
     return null;
   }
 
-  // If no command text, return null
+  // If no command text, return null for now (could be enhanced to provide general help)
   if (!parsedCommand.command) {
     return null;
   }
@@ -156,6 +161,27 @@ export async function getTaskType(
     return 'full-code-review';
   }
 
+  // Before checking dev commands, let's check for multi-word approval commands
+  // using the comprehensive isApprovalCommand function
+  if (isApprovalCommand(normalizedCommand)) {
+    console.log('[getTaskType] Multi-word approval command detected:', normalizedCommand);
+    return 'plan-approval-task';
+  }
+
+  // IMPORTANT: Only "@l dev " commands should trigger codex-task
+  if (parsedCommand.isDevCommand) {
+    console.log('[getTaskType] Detected dev command, routing to codex-task:', normalizedCommand);
+    return 'codex-task';
+  }
+
+  // For other @l commands, we return null for now (no action)
+  // In the future, this could be enhanced to provide contextual responses
+  // by fetching thread messages and generating appropriate responses
+  console.log('[getTaskType] Non-dev @l command detected, no action taken:', normalizedCommand);
+  return null;
+
+  // Note: The AI classification code below is kept but currently unreachable
+  // It could be re-enabled if needed for other command types
   try {
     console.log('[getTaskType] Attempting AI classification for command:', parsedCommand.command);
     
@@ -243,8 +269,15 @@ function getTaskTypeFallback(parsedCommand: ParsedCommand): string | null {
     case 'analyze':
       return 'plan-task';
     default:
-      // For any other command, trigger codex-task
-      return 'codex-task';
+      // IMPORTANT: Only trigger codex-task for "@l dev " commands
+      if (parsedCommand.isDevCommand) {
+        console.log('[getTaskTypeFallback] Dev command detected, returning codex-task');
+        return 'codex-task';
+      }
+      
+      // For any other @l command, return null (no action)
+      console.log('[getTaskTypeFallback] Non-dev @l command, returning null');
+      return null;
   }
 }
 
