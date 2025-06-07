@@ -64,7 +64,7 @@ export function parseCommand(comment: string): ParsedCommand {
   // Handle multiple mentions by taking the first one
   // IMPORTANT: @l should only trigger when at the beginning of the message
   const mentionPatterns = [
-    /@uwularpy\b/i,
+    /^\s*@uwularpy\b/i,
     /self@/i
   ];
   
