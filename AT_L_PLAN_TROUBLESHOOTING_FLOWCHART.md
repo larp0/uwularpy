@@ -216,39 +216,49 @@ gh api /repos/OWNER/REPO/milestones \
 
 ```mermaid
 flowchart TD
-    APIFlow([API Errors]) --> API1{Which API?}
+    APIFlow([🔌 API Errors]) --> API1{🤔 Which API?}
     
-    API1 -->|GitHub| GH1{Status code?}
-    API1 -->|OpenAI| OAI1{Error type?}
+    API1 -->|GitHub| GH1{📊 Status code?}
+    API1 -->|OpenAI| OAI1{⚠️ Error type?}
     
-    GH1 -->|401| GH401[Authentication failed]
-    GH1 -->|403| GH403[Forbidden/Rate limit]
-    GH1 -->|404| GH404[Resource not found]
-    GH1 -->|422| GH422[Validation error]
-    GH1 -->|500+| GH500[GitHub server error]
+    GH1 -->|401| GH401[🔐 Authentication failed]
+    GH1 -->|403| GH403[🚫 Forbidden/Rate limit]
+    GH1 -->|404| GH404[🔍 Resource not found]
+    GH1 -->|422| GH422[📝 Validation error]
+    GH1 -->|500+| GH500[🔧 GitHub server error]
     
-    OAI1 -->|401| OAI401[Invalid API key]
-    OAI1 -->|429| OAI429[Rate limit exceeded]
-    OAI1 -->|500+| OAI500[OpenAI server error]
-    OAI1 -->|Timeout| OAITimeout[Request timeout]
+    OAI1 -->|401| OAI401[🔑 Invalid API key]
+    OAI1 -->|429| OAI429[⏱️ Rate limit exceeded]
+    OAI1 -->|500+| OAI500[🤖 OpenAI server error]
+    OAI1 -->|Timeout| OAITimeout[⏰ Request timeout]
     
-    GH401 --> GH401Fix[Check GITHUB_APP_ID and GITHUB_PRIVATE_KEY]
-    GH403 --> GH403Fix[Check permissions and rate limits]
-    GH404 --> GH404Fix[Verify repository exists and accessible]
-    GH422 --> GH422Fix[Check request payload in logs]
-    GH500 --> GH500Fix[Retry with exponential backoff]
+    GH401 --> GH401Fix[✅ Check GITHUB_APP_ID and GITHUB_PRIVATE_KEY]
+    GH403 --> GH403Fix[🔍 Check permissions and rate limits]
+    GH404 --> GH404Fix[✅ Verify repository exists and accessible]
+    GH422 --> GH422Fix[📋 Check request payload in logs]
+    GH500 --> GH500Fix[🔄 Retry with exponential backoff]
     
-    OAI401 --> OAI401Fix[Verify OPENAI_API_KEY environment variable]
-    OAI429 --> OAI429Fix[Check OpenAI usage limits]
-    OAI500 --> OAI500Fix[Fallback analysis will be used]
-    OAITimeout --> OAITimeoutFix[Increase OPENAI_TIMEOUT_MS]
+    OAI401 --> OAI401Fix[🔧 Verify OPENAI_API_KEY environment variable]
+    OAI429 --> OAI429Fix[📊 Check OpenAI usage limits]
+    OAI500 --> OAI500Fix[⚠️ Fallback analysis will be used]
+    OAITimeout --> OAITimeoutFix[⚙️ Increase OPENAI_TIMEOUT_MS]
     
-    style GH401Fix fill:#90EE90
-    style GH403Fix fill:#90EE90
-    style GH404Fix fill:#90EE90
-    style GH422Fix fill:#90EE90
-    style OAI401Fix fill:#90EE90
-    style OAITimeoutFix fill:#90EE90
+    %% Enhanced styling for API error categorization
+    classDef startNode fill:#e8eaf6,stroke:#3f51b5,stroke-width:3px,color:#000
+    classDef apiNode fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px,color:#000
+    classDef githubError fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#000
+    classDef openaiError fill:#fff3e0,stroke:#ff9800,stroke-width:2px,color:#000
+    classDef fixNode fill:#e8f5e8,stroke:#4caf50,stroke-width:2px,color:#000
+    classDef warningNode fill:#fff8e1,stroke:#ffc107,stroke-width:2px,color:#000
+    
+    class APIFlow startNode
+    class API1 apiNode
+    class GH1 apiNode
+    class OAI1 apiNode
+    class GH401,GH403,GH404,GH422,GH500 githubError
+    class OAI401,OAI429,OAI500,OAITimeout openaiError
+    class GH401Fix,GH403Fix,GH404Fix,GH422Fix,GH500Fix,OAI401Fix,OAI429Fix,OAITimeoutFix fixNode
+    class OAI500Fix warningNode
 ```
 
 ### Environment Check:
@@ -453,14 +463,14 @@ const fixAttachments = async (octokit, owner, repo, issueNumbers, milestoneNumbe
 
 ```mermaid
 flowchart TD
-    BehaviorFlow([🤔 Unexpected Behavior]) --> B1{❓ What's unexpected?}
+    BehaviorFlow([🤔 Unexpected Behavior]) --> B1{What's unexpected?}
     
     B1 -->|Wrong analysis| B2[📊 Analysis quality issue]
-    B1 -->|Missing features| B3[🔍 Feature detection issue]
+    B1 -->|Missing features| B3[🔍 Feature detection issue] 
     B1 -->|Bad estimates| B4[⏱️ Estimation accuracy]
     B1 -->|Poor prioritization| B5[📊 Priority assignment]
     
-    B2 --> B2Check{🏗️ Repository type?}
+    B2 --> B2Check{Repository type?}
     B3 --> B3Fix[🔧 Check file analysis depth]
     B4 --> B4Fix[📏 Review T-shirt sizing]
     B5 --> B5Fix[🎯 Check MoSCoW logic]
