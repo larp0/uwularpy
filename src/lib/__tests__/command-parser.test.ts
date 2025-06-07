@@ -186,9 +186,38 @@ describe('Command Parser', () => {
       expect(await getTaskType(parsed)).toBe('plan-approval-task');
     });
 
-    it('should handle whitespace variations for approval commands', async () => {
-      const parsed = parseCommand('@l  approve  ');
-      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    it('should return plan-approval-task for multi-word approval commands', async () => {
+      const parsed1 = parseCommand('@l i approve');
+      expect(await getTaskType(parsed1)).toBe('plan-approval-task');
+      
+      const parsed2 = parseCommand('@l ship it');
+      expect(await getTaskType(parsed2)).toBe('plan-approval-task');
+      
+      const parsed3 = parseCommand('@l looks good');
+      expect(await getTaskType(parsed3)).toBe('plan-approval-task');
+      
+      const parsed4 = parseCommand('@l go ahead');
+      expect(await getTaskType(parsed4)).toBe('plan-approval-task');
+    });
+
+    it('should handle edge cases for approval commands', async () => {
+      // Test with extra spaces and mixed case
+      const parsed1 = parseCommand('@l   APPROVE   ');
+      expect(await getTaskType(parsed1)).toBe('plan-approval-task');
+      
+      // Test with newlines (should be cleaned up by parsing)
+      const parsed2 = parseCommand('@l approve\n');
+      expect(await getTaskType(parsed2)).toBe('plan-approval-task');
+      
+      // Test commands that should NOT be approval
+      const parsed3 = parseCommand('@l approves'); // not exact match
+      expect(await getTaskType(parsed3)).toBe('codex-task');
+      
+      const parsed4 = parseCommand('@l approval'); // not exact match  
+      expect(await getTaskType(parsed4)).toBe('codex-task');
+      
+      const parsed5 = parseCommand('@l not approve'); // contains but not approval
+      expect(await getTaskType(parsed5)).toBe('codex-task');
     });
   });
 });
