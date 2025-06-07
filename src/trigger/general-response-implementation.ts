@@ -218,13 +218,13 @@ Please analyze this conversation and provide a helpful response. Focus on:
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4", // Using gpt-4 as gpt-4.1-nano isn't available
+        model: "gpt-4.1-nano", // Using gpt-4 as gpt-4.1-nano isn't available
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
         temperature: 0.7,
-        max_tokens: 500
+        max_tokens: 31500
       })
     });
 
