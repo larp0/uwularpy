@@ -157,12 +157,15 @@ export async function codexRepository(
     // Check if there are any changes to commit
     const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
     
+    // Generate AI commit message
+    const commitMessage = await generateCommitMessage(tempDir, gitStatus);
+    
     if (!gitStatus) {
       logger.log("No changes were made. Creating empty commit.");
-      execSync('git commit --allow-empty -m "Apply changes from OpenAI API self-ask flow (no changes made)"', { cwd: tempDir, stdio: "inherit" });
+      execSync(`git commit --allow-empty -m "${commitMessage}"`, { cwd: tempDir, stdio: "inherit" });
     } else {
       logger.log("Committing changes");
-      execSync('git commit -m "Apply changes from OpenAI API self-ask flow"', { cwd: tempDir, stdio: "inherit" });
+      execSync(`git commit -m "${commitMessage}"`, { cwd: tempDir, stdio: "inherit" });
     }
     
     execSync(`git push -u origin ${branchName}`, {
@@ -183,6 +186,68 @@ export async function codexRepository(
     }
     logger.error("codexRepository failed", { error: msg, repoUrl, branchName });
     throw new Error(`Error processing repository ${repoUrl}: ${msg}. Please check repository settings and try again.`);
+  }
+}
+
+/**
+ * Generate an AI-powered commit message based on the git diff.
+ * @param repoPath - Path to the repository.
+ * @param gitStatus - Output from git status --porcelain.
+ * @returns Generated commit message.
+ */
+async function generateCommitMessage(repoPath: string, gitStatus: string): Promise<string> {
+  try {
+    let diffContent = "";
+    
+    if (gitStatus) {
+      // Get the actual diff for staged changes
+      diffContent = execSync('git diff --cached', { encoding: 'utf-8', cwd: repoPath }).toString();
+    }
+    
+    if (!diffContent.trim()) {
+      // No diff available, return a default message for empty commits
+      return "Apply changes from OpenAI API self-ask flow (no changes made)";
+    }
+    
+    // Initialize OpenAI client
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+    
+    logger.log("Generating AI commit message", { diffLength: diffContent.length });
+    
+    // Send diff to GPT-4.1-mini for commit message generation
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Note: using gpt-4o-mini as gpt-4.1-mini doesn't exist
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant that generates concise, informative git commit messages. Based on the provided git diff, create a single line commit message that clearly describes what was changed. Use conventional commit format when appropriate (feat:, fix:, refactor:, etc.). Keep it under 72 characters if possible."
+        },
+        {
+          role: "user",
+          content: `Generate a commit message for this git diff:\n\n${diffContent}`
+        }
+      ],
+      max_tokens: 100,
+      temperature: 0.3
+    });
+    
+    const generatedMessage = response.choices[0]?.message?.content?.trim() || "Apply changes from OpenAI API self-ask flow";
+    
+    // Remove quotes if present and ensure it's a single line
+    const cleanMessage = generatedMessage.replace(/^["']|["']$/g, '').split('\n')[0].trim();
+    
+    logger.log("Generated commit message", { message: cleanMessage });
+    
+    return cleanMessage;
+  } catch (error) {
+    logger.warn("Failed to generate AI commit message, using fallback", { 
+      error: error instanceof Error ? error.message : String(error) 
+    });
+    return gitStatus 
+      ? "Apply changes from OpenAI API self-ask flow"
+      : "Apply changes from OpenAI API self-ask flow (no changes made)";
   }
 }
 
