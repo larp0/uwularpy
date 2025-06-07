@@ -179,52 +179,6 @@ export async function getTaskType(
   // by fetching thread messages and generating appropriate responses
   console.log('[getTaskType] Non-dev @l command detected, no action taken:', normalizedCommand);
   return null;
-
-  // Note: The AI classification code below is kept but currently unreachable
-  // It could be re-enabled if needed for other command types
-  try {
-    console.log('[getTaskType] Attempting AI classification for command:', parsedCommand.command);
-    
-    // Check if OpenAI API key is configured
-    if (!process.env.OPENAI_API_KEY) {
-      console.warn('[getTaskType] OpenAI API key not configured, using fallback');
-      return getTaskTypeFallback(parsedCommand);
-    }
-    
-    // Use AI to classify the intent
-    const classification = await classifyCommandIntent(parsedCommand.command, context);
-    
-    // Store AI results in the parsed command for reference
-    parsedCommand.aiIntent = classification.intent;
-    parsedCommand.aiConfidence = classification.confidence;
-    
-    console.log('[getTaskType] AI Classification SUCCESS:', {
-      command: parsedCommand.command,
-      intent: classification.intent,
-      confidence: classification.confidence,
-      language: classification.language
-    });
-    
-    // Map intent to task type
-    const taskType = intentToTaskType(classification.intent);
-    
-    if (taskType) {
-      console.log(`[getTaskType] Mapped intent "${classification.intent}" to task: ${taskType}`);
-      return taskType;
-    }
-    
-    console.warn(`[getTaskType] No task mapping found for intent "${classification.intent}", defaulting to codex-task`);
-    return 'codex-task';
-    
-  } catch (error) {
-    console.error('[getTaskType] AI classification FAILED:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      command: parsedCommand.command
-    });
-    
-    // Fallback to the old pattern-based system
-    return getTaskTypeFallback(parsedCommand);
-  }
 }
 
 /**
