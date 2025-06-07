@@ -153,7 +153,18 @@ export async function codexRepository(
 
     // Commit and push changes
     execSync("git add .", { cwd: tempDir, stdio: "inherit" });
-    execSync('git commit -m "Apply changes from OpenAI API self-ask flow"', { cwd: tempDir, stdio: "inherit" });
+    
+    // Check if there are any changes to commit
+    const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
+    
+    if (!gitStatus) {
+      logger.log("No changes were made. Creating empty commit.");
+      execSync('git commit --allow-empty -m "Apply changes from OpenAI API self-ask flow (no changes made)"', { cwd: tempDir, stdio: "inherit" });
+    } else {
+      logger.log("Committing changes");
+      execSync('git commit -m "Apply changes from OpenAI API self-ask flow"', { cwd: tempDir, stdio: "inherit" });
+    }
+    
     execSync(`git push -u origin ${branchName}`, {
       cwd: tempDir,
       stdio: "inherit",
