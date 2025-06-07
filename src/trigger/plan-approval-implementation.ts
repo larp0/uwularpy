@@ -261,7 +261,7 @@ async function findMostRecentMilestone(
     
     // Look for milestone URL in recent comments with improved patterns
     for (const comment of comments) {
-      if (comment.user?.login === BOT_USERNAME && comment.body) {
+      if (comment.body) {
         logger.debug(`Checking comment from ${comment.user.login}`, { 
           commentId: comment.id,
           createdAt: comment.created_at,
@@ -603,7 +603,7 @@ Transform the basic issue into a professional, detailed GitHub issue that includ
 
 Format using proper Markdown with clear sections, code blocks where relevant, and checkbox lists for actionable items.
 
-Keep the tone professional but approachable. Make it detailed enough that any competent developer could pick up the issue and implement it successfully.`;
+Keep the tone unhinged and nerdy but approachable and motivating, be humble yet inspire for impossible. Make it detailed enough that any competent developer could pick up the issue and implement it successfully.`;
 
   const userPrompt = `Enhance this GitHub issue for better implementation:
 
@@ -636,12 +636,12 @@ Please transform this into a comprehensive, actionable GitHub issue with detaile
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini", // GPT-4o-mini (nano equivalent)
+          model: "gpt-4.1-mini",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
           ],
-          max_tokens: 21500,
+          max_tokens: 31500,
           temperature: 0.7
         }),
         signal: controller.signal
