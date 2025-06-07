@@ -4,12 +4,18 @@
   "description": "A Next.js application that uwuifies markdown files in GitHub repositories when mentioned in issue comments",
   "scripts": {
     "dev": "next dev",
-    "build": "NEXT_DISABLE_ESLINT=1 next build",
+    "build": "npm run lint:check && npm run type-check && NEXT_DISABLE_ESLINT=1 next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "next lint --fix",
+    "lint:check": "next lint",
+    "lint:spell": "eslint --ext .ts,.tsx,.js,.jsx src/ --rule 'spellcheck/spell-checker: error'",
+    "type-check": "tsc --noEmit",
     "cli": "ts-node --esm src/lib/codexCli.ts",
     "test": "jest",
-    "test:plan": "jest test-plan-implementation.test.js"
+    "test:plan": "jest test-plan-implementation.test.js",
+    "test:e2e": "jest src/lib/__tests__/git-utils-e2e.test.ts",
+    "quality-check": "npm run lint:check && npm run lint:spell && npm run type-check && npm run test",
+    "fix-all": "npm run lint && npm run type-check"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.0.1",
@@ -17,6 +23,7 @@
     "@trigger.dev/sdk": "^3.3.17",
     "axios": "^1.9.0",
     "commander": "^14.0.0",
+    "dotenv": "^16.5.0",
     "next": "^15.3.3",
     "openai": "^5.1.0",
     "react": "^19.1.0",
@@ -32,6 +39,7 @@
     "autoprefixer": "^10.4.21",
     "eslint": "^9.28.0",
     "eslint-config-next": "^15.3.3",
+    "eslint-plugin-spellcheck": "^0.0.20",
     "jest": "^29.7.0",
     "postcss": "^8.5.4",
     "tailwindcss": "^4.1.8",

@@ -3,6 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { GitHubContext } from "../services/task-types";
 import { createAuthenticatedOctokit } from "./github-auth";
 import { BOT_USERNAME } from "./workflow-constants";
+import { findMostRecentMilestoneEnhanced, findMilestonesByDate } from "../lib/milestone-finder";
 import {
   CRITICAL_ISSUE_TEMPLATE,
   MISSING_COMPONENT_TEMPLATE,
@@ -83,17 +84,42 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
     // Create authenticated Octokit
     const octokit = await createAuthenticatedOctokit(installationId);
 
-    // Find the most recent milestone created by parsing recent comments
-    const milestone = await findMostRecentMilestone(octokit, owner, repo, issueNumber);
+    // Find the most recent milestone using enhanced search with fallbacks
+    let milestone = await findMostRecentMilestone(octokit, owner, repo, issueNumber);
+    
+    // If standard search fails, try enhanced search with broader parameters
+    if (!milestone) {
+      logger.info("Standard milestone search failed, trying enhanced search");
+      milestone = await findMostRecentMilestoneEnhanced(octokit, owner, repo, issueNumber, {
+        includeAllUsers: true, // Search all users, not just bot
+        debugMode: true, // Enable detailed logging
+        searchDepth: 500 // Increase search depth
+      });
+    }
+    
+    // If still no milestone found, try date-based search as last resort
+    if (!milestone) {
+      logger.info("Enhanced search failed, trying date-based search");
+      const recentMilestones = await findMilestonesByDate(octokit, owner, repo, 14); // Last 14 days
+      if (recentMilestones.length > 0) {
+        milestone = recentMilestones[0]; // Use most recent
+        if (milestone) {
+          logger.info("Found milestone using date-based search", { 
+            milestoneNumber: milestone.number,
+            title: milestone.title 
+          });
+        }
+      }
+    }
     
     if (!milestone) {
       await octokit.issues.createComment({
         owner,
         repo,
         issue_number: issueNumber,
-        body: "❌ **No Recent Milestone Found**\n\nI couldn't find a recent milestone to approve. Please run `@l plan` first to create a milestone."
+        body: "❌ **No Recent Milestone Found**\n\nI couldn't find a recent milestone to approve after trying multiple search methods:\n- Comment-based search\n- Enhanced pattern matching\n- Date-based milestone search\n\nPlease run `@l plan` first to create a milestone, or ensure the milestone reference is clearly visible in recent comments."
       });
-      return { success: false, error: "No milestone found" };
+      return { success: false, error: "No milestone found after comprehensive search" };
     }
 
     // Search for mermaid diagrams in the thread
@@ -235,7 +261,7 @@ async function findMostRecentMilestone(
     
     // Look for milestone URL in recent comments with improved patterns
     for (const comment of comments) {
-      if (comment.user?.login === BOT_USERNAME && comment.body) {
+      if (comment.body) {
         logger.debug(`Checking comment from ${comment.user.login}`, { 
           commentId: comment.id,
           createdAt: comment.created_at,
@@ -577,7 +603,7 @@ Transform the basic issue into a professional, detailed GitHub issue that includ
 
 Format using proper Markdown with clear sections, code blocks where relevant, and checkbox lists for actionable items.
 
-Keep the tone professional but approachable. Make it detailed enough that any competent developer could pick up the issue and implement it successfully.`;
+Keep the tone unhinged and nerdy but approachable and motivating, be humble yet inspire for impossible. Make it detailed enough that any competent developer could pick up the issue and implement it successfully.`;
 
   const userPrompt = `Enhance this GitHub issue for better implementation:
 
@@ -610,12 +636,12 @@ Please transform this into a comprehensive, actionable GitHub issue with detaile
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini", // GPT-4o-mini (nano equivalent)
+          model: "gpt-4.1-mini",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
           ],
-          max_tokens: 21500,
+          max_tokens: 31500,
           temperature: 0.7
         }),
         signal: controller.signal
