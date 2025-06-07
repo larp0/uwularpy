@@ -42,32 +42,60 @@ The `@l plan` feature is an AI-powered project planning system that transforms h
 
 ## Architecture Overview
 
+### Diagram Legend
+
+```mermaid
+flowchart LR
+    subgraph Legend["🎨 Visual Guide"]
+        A[🔵 User Interface]
+        B[🟣 Processing Logic]
+        C[🟢 External Services]
+        D[🟠 Data Storage]
+        E[🤖 AI Operations]
+        F[⚙️ System Processes]
+    end
+    
+    classDef userInterface fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef processing fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef external fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef aiProcess fill:#e0f2f1,stroke:#009688,stroke-width:2px,color:#000
+    classDef systemProcess fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
+    
+    class A userInterface
+    class B processing
+    class C external
+    class D storage
+    class E aiProcess
+    class F systemProcess
+```
+
 ### System Architecture Diagram
 
 ```mermaid
 graph TB
-    subgraph "User Interface"
-        A[GitHub Issue Comment]
-        B[Command Parser]
+    subgraph UI ["🖥️ User Interface"]
+        A[💬 GitHub Issue Comment]
+        B[⚙️ Command Parser]
     end
     
-    subgraph "Task Processing"
-        C[Task Router]
-        D[Plan Implementation]
-        E[Plan Approval]
-        F[Plan Execution]
+    subgraph PROCESSING ["🔄 Task Processing"]
+        C[🎯 Task Router]
+        D[📋 Plan Implementation]
+        E[✅ Plan Approval]
+        F[🚀 Plan Execution]
     end
     
-    subgraph "External Services"
-        G[GitHub API]
-        H[OpenAI API]
-        I[Trigger.dev]
+    subgraph EXTERNAL ["🌐 External Services"]
+        G[🐙 GitHub API]
+        H[🤖 OpenAI API]
+        I[⚡ Trigger.dev]
     end
     
-    subgraph "Data Storage"
-        J[GitHub Milestones]
-        K[GitHub Issues]
-        L[Rate Limit Cache]
+    subgraph STORAGE ["💾 Data Storage"]
+        J[📌 GitHub Milestones]
+        K[🎫 GitHub Issues]
+        L[🔒 Rate Limit Cache]
     end
     
     A --> B
@@ -85,37 +113,55 @@ graph TB
     F --> K
     D --> L
     E --> L
+    
+    %% Enhanced styling for better visual hierarchy
+    classDef userInterface fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef processing fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef external fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef storage fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef subgraphStyle fill:#fafafa,stroke:#424242,stroke-width:2px
+    
+    class A,B userInterface
+    class C,D,E,F processing
+    class G,H,I external
+    class J,K,L storage
 ```
 
 ### Component Interaction Diagram
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Parser
-    participant Router
-    participant PlanTask
-    participant GitHub
-    participant OpenAI
-    participant ApprovalTask
+    participant U as 👤 User
+    participant P as ⚙️ Parser
+    participant R as 🎯 Router
+    participant PT as 📋 PlanTask
+    participant GH as 🐙 GitHub
+    participant AI as 🤖 OpenAI
+    participant AT as ✅ ApprovalTask
     
-    User->>Parser: @l plan add authentication
-    Parser->>Router: ParsedCommand{command: "plan", userQuery: "add authentication"}
-    Router->>PlanTask: Execute plan-task
-    PlanTask->>GitHub: Post acknowledgment
-    PlanTask->>GitHub: Ingest repository
-    PlanTask->>OpenAI: Analyze with context
-    OpenAI-->>PlanTask: Analysis results
-    PlanTask->>GitHub: Create milestone
-    PlanTask->>User: Milestone created notification
+    Note over U,AT: 🚀 Plan Creation Phase
+    U->>+P: @l plan add authentication
+    P->>+R: ParsedCommand{command: "plan", userQuery: "add authentication"}
+    R->>+PT: Execute plan-task
+    PT->>GH: 📝 Post acknowledgment
+    PT->>GH: 📊 Ingest repository
+    PT->>+AI: 🔍 Analyze with context
+    AI-->>-PT: 📈 Analysis results
+    PT->>GH: 📌 Create milestone
+    PT-->>-U: 🎉 Milestone created notification
     
-    User->>Parser: @l approve
-    Parser->>Router: ParsedCommand{command: "approve"}
-    Router->>ApprovalTask: Execute plan-approval-task
-    ApprovalTask->>GitHub: Find milestone
-    ApprovalTask->>OpenAI: Enhance issues
-    ApprovalTask->>GitHub: Create issues
-    ApprovalTask->>User: Confirmation request
+    Note over U,AT: ✅ Plan Approval Phase
+    U->>+P: @l approve
+    P->>+R: ParsedCommand{command: "approve"}
+    R->>+AT: Execute plan-approval-task
+    AT->>GH: 🔍 Find milestone
+    AT->>+AI: ✨ Enhance issues
+    AI-->>-AT: 🎯 Enhanced descriptions
+    AT->>GH: 🎫 Create issues
+    AT-->>-U: ❓ Confirmation request
+    
+    %% Enhanced styling for better readability
+    Note over U,AT: 📊 Process Complete - Ready for Development
 ```
 
 ---
@@ -126,14 +172,27 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[User Input] --> B{Parse Command}
-    B --> C[Extract User Query]
-    C --> D[Rate Limit Check]
-    D --> E[Post Acknowledgment]
-    E --> F[Repository Ingestion]
-    F --> G[AI Analysis]
-    G --> H[Create Milestone]
-    H --> I[Notify User]
+    A[👤 User Input] --> B{⚙️ Parse Command}
+    B --> C[🔍 Extract User Query]
+    C --> D[🛡️ Rate Limit Check]
+    D --> E[📢 Post Acknowledgment]
+    E --> F[📊 Repository Ingestion]
+    F --> G[🤖 AI Analysis]
+    G --> H[📌 Create Milestone]
+    H --> I[🎉 Notify User]
+    
+    %% Enhanced styling for workflow clarity
+    classDef userAction fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef systemProcess fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef aiProcess fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef output fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef check fill:#ffebee,stroke:#d32f2f,stroke-width:2px,color:#000
+    
+    class A userAction
+    class B,C,E,F check
+    class G aiProcess
+    class H,I output
+    class D systemProcess
 ```
 
 #### Step 1: Command Parsing
@@ -223,13 +282,26 @@ Return analysis as structured JSON...`;
 
 ```mermaid
 flowchart LR
-    A[Approval Command] --> B[Find Milestone]
-    B --> C[Parse Description]
-    C --> D[Generate Issues]
-    D --> E[Enhance with AI]
-    E --> F[Create in GitHub]
-    F --> G[Verify Attachments]
-    G --> H[Request Confirmation]
+    A[✅ Approval Command] --> B[🔍 Find Milestone]
+    B --> C[📋 Parse Description]
+    C --> D[🎫 Generate Issues]
+    D --> E[🤖 Enhance with AI]
+    E --> F[🐙 Create in GitHub]
+    F --> G[🔗 Verify Attachments]
+    G --> H[❓ Request Confirmation]
+    
+    %% Consistent styling with Phase 1
+    classDef userAction fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef systemProcess fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef aiProcess fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef output fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef gitHubAction fill:#eeeeee,stroke:#424242,stroke-width:2px,color:#000
+    
+    class A userAction
+    class B,C,D,G systemProcess
+    class E aiProcess
+    class F gitHubAction
+    class H output
 ```
 
 #### Issue Enhancement Process
