@@ -88,3 +88,13 @@ export const prMergeProgressionTask = task({
     return await runPRMergeProgressionTask(payload, ctx);
   },
 });
+
+export const generalResponseTask = task({
+  id: "general-response-task",
+  machine: "small-1x", 
+  maxDuration: 300, // 5 minutes for conversation analysis and response
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runGeneralResponseTask } = await import("./general-response-implementation");
+    return await runGeneralResponseTask(payload, ctx);
+  },
+});

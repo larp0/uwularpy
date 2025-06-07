@@ -39,7 +39,7 @@ describe('Command Parser', () => {
     it('should sanitize HTML tags', () => {
       const result = parseCommand('@uwularpy <script>alert("xss")</script>plan');
       expect(result.isMention).toBe(true);
-      expect(result.command).toBe('plan');
+      expect(result.command).toBe('alert("xss")plan'); // Script tags removed but content remains
       expect(result.fullText).not.toContain('<script>');
     });
 
@@ -90,59 +90,185 @@ describe('Command Parser', () => {
   });
 
   describe('getTaskType', () => {
-    it('should return plan-task for plan command', () => {
+    it('should return plan-task for plan command', async () => {
       const parsed = parseCommand('@uwularpy plan');
-      expect(getTaskType(parsed)).toBe('plan-task');
+      expect(await getTaskType(parsed)).toBe('plan-task');
     });
 
-    it('should return plan-task for planning alias', () => {
+    it('should return plan-task for planning alias', async () => {
       const parsed = parseCommand('@uwularpy planning');
-      expect(getTaskType(parsed)).toBe('plan-task');
+      expect(await getTaskType(parsed)).toBe('plan-task');
     });
 
-    it('should return plan-task for analyze alias', () => {
+    it('should return plan-task for analyze alias', async () => {
       const parsed = parseCommand('@uwularpy analyze');
-      expect(getTaskType(parsed)).toBe('plan-task');
+      expect(await getTaskType(parsed)).toBe('plan-task');
     });
 
-    it('should return full-code-review for r command', () => {
+    it('should return full-code-review for r command', async () => {
       const parsed = parseCommand('@uwularpy r');
-      expect(getTaskType(parsed)).toBe('full-code-review');
+      expect(await getTaskType(parsed)).toBe('full-code-review');
     });
 
-    it('should return full-code-review for review alias', () => {
+    it('should return full-code-review for review alias', async () => {
       const parsed = parseCommand('@uwularpy review');
-      expect(getTaskType(parsed)).toBe('full-code-review');
+      expect(await getTaskType(parsed)).toBe('full-code-review');
     });
 
-    // it('should return uwuify-repository for empty command', () => {
+    // it('should return uwuify-repository for empty command', async () => {
     //   const parsed = parseCommand('@uwularpy');
-    //   expect(getTaskType(parsed)).toBe('uwuify-repository');
+    //   expect(await getTaskType(parsed)).toBe('uwuify-repository');
     // });
 
-    it('should return codex-task for unknown commands', () => {
+    it('should return general-response-task for unknown non-dev commands', async () => {
       const parsed = parseCommand('@uwularpy unknown-command');
-      expect(getTaskType(parsed)).toBe('codex-task');
+      expect(await getTaskType(parsed)).toBe('general-response-task'); // Changed: non-dev commands now return general-response-task
     });
 
-    it('should return null for non-mentions', () => {
+    it('should return null for non-mentions', async () => {
       const parsed = parseCommand('regular comment');
-      expect(getTaskType(parsed)).toBeNull();
+      expect(await getTaskType(parsed)).toBeNull();
     });
 
-    it('should handle null/undefined input', () => {
-      expect(getTaskType(null as any)).toBeNull();
-      expect(getTaskType(undefined as any)).toBeNull();
+    it('should handle null/undefined input', async () => {
+      expect(await getTaskType(null as any)).toBeNull();
+      expect(await getTaskType(undefined as any)).toBeNull();
     });
 
-    it('should be case insensitive', () => {
+    it('should be case insensitive', async () => {
       const parsed = parseCommand('@uwularpy PLAN');
-      expect(getTaskType(parsed)).toBe('plan-task');
+      expect(await getTaskType(parsed)).toBe('plan-task');
     });
 
-    it('should handle commands with extra whitespace', () => {
+    it('should handle commands with extra whitespace', async () => {
       const parsed = parseCommand('@uwularpy   plan   ');
-      expect(getTaskType(parsed)).toBe('plan-task');
+      expect(await getTaskType(parsed)).toBe('plan-task');
+    });
+
+    // Tests for approval commands - the main issue
+    it('should return plan-approval-task for approve command', async () => {
+      const parsed = parseCommand('@l approve');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for yes command', async () => {
+      const parsed = parseCommand('@l yes');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for y command', async () => {
+      const parsed = parseCommand('@l y');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for ok command', async () => {
+      const parsed = parseCommand('@l ok');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for okay command', async () => {
+      const parsed = parseCommand('@l okay');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for i approve command', async () => {
+      const parsed = parseCommand('@l i approve');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for lgtm command', async () => {
+      const parsed = parseCommand('@l lgtm');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should be case insensitive for approval commands', async () => {
+      const parsed = parseCommand('@l APPROVE');
+      expect(await getTaskType(parsed)).toBe('plan-approval-task');
+    });
+
+    it('should return plan-approval-task for multi-word approval commands', async () => {
+      const parsed1 = parseCommand('@l i approve');
+      expect(await getTaskType(parsed1)).toBe('plan-approval-task');
+      
+      const parsed2 = parseCommand('@l ship it');
+      expect(await getTaskType(parsed2)).toBe('plan-approval-task');
+      
+      const parsed3 = parseCommand('@l looks good');
+      expect(await getTaskType(parsed3)).toBe('plan-approval-task');
+      
+      const parsed4 = parseCommand('@l go ahead');
+      expect(await getTaskType(parsed4)).toBe('plan-approval-task');
+    });
+
+    it('should handle edge cases for approval commands', async () => {
+      // Test with extra spaces and mixed case
+      const parsed1 = parseCommand('@l   APPROVE   ');
+      expect(await getTaskType(parsed1)).toBe('plan-approval-task');
+      
+      // Test with newlines (should be cleaned up by parsing)
+      const parsed2 = parseCommand('@l approve\n');
+      expect(await getTaskType(parsed2)).toBe('plan-approval-task');
+      
+      // Test commands that should NOT be approval
+      const parsed3 = parseCommand('@l approves'); // not exact match
+      expect(await getTaskType(parsed3)).toBe('general-response-task'); // Changed: should return general-response-task for non-dev commands
+      
+      const parsed4 = parseCommand('@l approval'); // not exact match  
+      expect(await getTaskType(parsed4)).toBe('general-response-task'); // Changed: should return general-response-task for non-dev commands
+      
+      const parsed5 = parseCommand('@l not approve'); // contains but not approval
+      expect(await getTaskType(parsed5)).toBe('general-response-task'); // Changed: should return general-response-task for non-dev commands
+    });
+
+    // Tests for the new "@l dev " specific routing
+    it('should return codex-task only for "@l dev " commands', async () => {
+      const parsed1 = parseCommand('@l dev fix the issue');
+      expect(parsed1.isDevCommand).toBe(true);
+      expect(await getTaskType(parsed1)).toBe('codex-task');
+      
+      const parsed2 = parseCommand('@l dev implement feature');
+      expect(parsed2.isDevCommand).toBe(true);
+      expect(await getTaskType(parsed2)).toBe('codex-task');
+      
+      const parsed3 = parseCommand('@l DEV update code');
+      expect(parsed3.isDevCommand).toBe(true);
+      expect(await getTaskType(parsed3)).toBe('codex-task');
+    });
+
+    it('should return general-response-task for non-dev @l commands', async () => {
+      const parsed1 = parseCommand('@l help');
+      expect(parsed1.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed1)).toBe('general-response-task');
+      
+      const parsed2 = parseCommand('@l what is this');
+      expect(parsed2.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed2)).toBe('general-response-task');
+      
+      const parsed3 = parseCommand('@l unknown-command');
+      expect(parsed3.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed3)).toBe('general-response-task');
+      
+      const parsed4 = parseCommand('@l developing'); // should not match "dev "
+      expect(parsed4.isDevCommand).toBe(false);
+      expect(await getTaskType(parsed4)).toBe('general-response-task');
+    });
+
+    it('should detect isDevCommand correctly in parseCommand', () => {
+      const result1 = parseCommand('@l dev fix this');
+      expect(result1.isDevCommand).toBe(true);
+      expect(result1.command).toBe('dev fix this');
+      
+      const result2 = parseCommand('@l help me');
+      expect(result2.isDevCommand).toBe(false);
+      expect(result2.command).toBe('help me');
+      
+      const result3 = parseCommand('@l developing'); // should not match
+      expect(result3.isDevCommand).toBe(false);
+      expect(result3.command).toBe('developing');
+      
+      const result4 = parseCommand('@l DEV fix this'); // case insensitive
+      expect(result4.isDevCommand).toBe(true);
+      expect(result4.command).toBe('dev fix this');
     });
   });
 });

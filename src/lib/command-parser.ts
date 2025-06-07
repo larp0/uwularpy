@@ -8,6 +8,7 @@ export interface ParsedCommand {
   userQuery?: string; // Added to capture user-specific problems/queries
   aiIntent?: string; // AI-classified intent
   aiConfidence?: number; // AI confidence score
+  isDevCommand?: boolean; // True if this is a "@l dev " command
 }
 
 /**
@@ -64,7 +65,7 @@ export function parseCommand(comment: string): ParsedCommand {
   // Handle multiple mentions by taking the first one
   const mentionPatterns = [
     /@uwularpy\b/i,
-    /@l\s+/i,
+    /@l\b/i,  // Changed to allow @l without requiring space
     /self@/i
   ];
   
@@ -80,9 +81,19 @@ export function parseCommand(comment: string): ParsedCommand {
 
   // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
   // Updated regex to handle edge cases better, including self@ prefix
-  const match = sanitizedComment.match(/@(uwularpy|l)\s+([\s\S]*?)(?=@\w+|$)/i) || 
+  const match = sanitizedComment.match(/@(uwularpy|l)\s*([\s\S]*?)(?=@\w+|$)/i) || 
                 sanitizedComment.match(/self@\s*(.+?)(?=@\w+|$)/i);
-  let textAfterMention = match ? (match[2] || match[1]).trim() : '';
+  let textAfterMention = '';
+  
+  if (match) {
+    if (match[0].startsWith('self@')) {
+      // For self@ mentions, the command is in match[1]
+      textAfterMention = (match[1] || '').trim();
+    } else {
+      // For @uwularpy or @l mentions, the command is in match[2]
+      textAfterMention = (match[2] || '').trim();
+    }
+  }
   
   // Additional cleanup to handle any hidden characters or extra whitespace
   textAfterMention = textAfterMention.replace(/\s+/g, ' ').trim();
@@ -107,11 +118,15 @@ export function parseCommand(comment: string): ParsedCommand {
     userQuery = refineCommandMatch[2].trim();
   }
 
+  // Check if this is a "@l dev " command specifically
+  const isDevCommand = textAfterMention.toLowerCase().startsWith('dev ');
+
   return {
     command: textAfterMention.trim().toLowerCase(),
     fullText: textAfterMention,
     isMention: true,
-    userQuery
+    userQuery,
+    isDevCommand
   };
 }
 
@@ -130,21 +145,24 @@ export async function getTaskType(
     return null;
   }
 
-  // If no command text, return null
+  // If no command text, analyze the thread and provide general response
   if (!parsedCommand.command) {
-    return null;
+    return 'general-response-task';
   }
 
   // Priority commands that should work without AI
   const normalizedCommand = parsedCommand.command.toLowerCase().trim();
   
   // Handle critical commands directly without AI to ensure they always work
-  if (normalizedCommand === 'approve' || normalizedCommand === 'yes' || normalizedCommand === 'y' || normalizedCommand === 'ok') {
+  // Use a comprehensive list that matches isApprovalCommand patterns
+  const directApprovalPatterns = ['approve', 'yes', 'y', 'ok', 'okay', 'lgtm'];
+  if (directApprovalPatterns.includes(normalizedCommand)) {
     console.log('[getTaskType] Direct match for approval command:', normalizedCommand);
     return 'plan-approval-task';
   }
   
-  if (normalizedCommand === 'plan' || normalizedCommand === 'planning' || normalizedCommand === 'analyze') {
+  if (normalizedCommand === 'plan' || normalizedCommand === 'planning' || normalizedCommand === 'analyze' ||
+      normalizedCommand.startsWith('plan ') || normalizedCommand.startsWith('planning ') || normalizedCommand.startsWith('analyze ')) {
     console.log('[getTaskType] Direct match for plan command:', normalizedCommand);
     return 'plan-task';
   }
@@ -154,49 +172,23 @@ export async function getTaskType(
     return 'full-code-review';
   }
 
-  try {
-    console.log('[getTaskType] Attempting AI classification for command:', parsedCommand.command);
-    
-    // Check if OpenAI API key is configured
-    if (!process.env.OPENAI_API_KEY) {
-      console.warn('[getTaskType] OpenAI API key not configured, using fallback');
-      return getTaskTypeFallback(parsedCommand);
-    }
-    
-    // Use AI to classify the intent
-    const classification = await classifyCommandIntent(parsedCommand.command, context);
-    
-    // Store AI results in the parsed command for reference
-    parsedCommand.aiIntent = classification.intent;
-    parsedCommand.aiConfidence = classification.confidence;
-    
-    console.log('[getTaskType] AI Classification SUCCESS:', {
-      command: parsedCommand.command,
-      intent: classification.intent,
-      confidence: classification.confidence,
-      language: classification.language
-    });
-    
-    // Map intent to task type
-    const taskType = intentToTaskType(classification.intent);
-    
-    if (taskType) {
-      console.log(`[getTaskType] Mapped intent "${classification.intent}" to task: ${taskType}`);
-      return taskType;
-    }
-    
-    console.warn(`[getTaskType] No task mapping found for intent "${classification.intent}", defaulting to codex-task`);
-    return 'codex-task';
-    
-  } catch (error) {
-    console.error('[getTaskType] AI classification FAILED:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      command: parsedCommand.command
-    });
-    
-    // Fallback to the old pattern-based system
-    return getTaskTypeFallback(parsedCommand);
+  // Before checking dev commands, let's check for multi-word approval commands
+  // using the comprehensive isApprovalCommand function
+  if (isApprovalCommand(normalizedCommand)) {
+    console.log('[getTaskType] Multi-word approval command detected:', normalizedCommand);
+    return 'plan-approval-task';
   }
+
+  // IMPORTANT: Only "@l dev " commands should trigger codex-task
+  if (parsedCommand.isDevCommand) {
+    console.log('[getTaskType] Detected dev command, routing to codex-task:', normalizedCommand);
+    return 'codex-task';
+  }
+
+  // For other @l commands, we analyze the thread and provide contextual responses
+  // This fetches all messages from the thread and generates appropriate responses
+  console.log('[getTaskType] Non-dev @l command detected, routing to general response:', normalizedCommand);
+  return 'general-response-task';
 }
 
 /**
@@ -241,8 +233,15 @@ function getTaskTypeFallback(parsedCommand: ParsedCommand): string | null {
     case 'analyze':
       return 'plan-task';
     default:
-      // For any other command, trigger codex-task
-      return 'codex-task';
+      // IMPORTANT: Only trigger codex-task for "@l dev " commands
+      if (parsedCommand.isDevCommand) {
+        console.log('[getTaskTypeFallback] Dev command detected, returning codex-task');
+        return 'codex-task';
+      }
+      
+      // For any other @l command, route to general response task
+      console.log('[getTaskTypeFallback] Non-dev @l command, returning general-response-task');
+      return 'general-response-task';
   }
 }
 
