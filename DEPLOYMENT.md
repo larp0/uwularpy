@@ -18,14 +18,25 @@ This guide will help you deploy the UwUlarpy Next.js application to Vercel witho
 
 ## Step 2: Configure Environment Variables
 
-For the webhook functionality to work properly, you need to add these environment variables in Vercel:
+For the webhook functionality and trigger.dev integration to work properly, you need to add these environment variables in Vercel:
 
 1. Go to your project settings in Vercel
 2. Navigate to "Environment Variables"
 3. Add the following variables:
-   - `APP_ID`: Your GitHub App ID
-   - `PRIVATE_KEY`: Your GitHub App private key (include BEGIN/END lines)
-   - `WEBHOOK_SECRET`: Your GitHub webhook secret
+
+### GitHub App Configuration
+   - `GITHUB_APP_ID`: Your GitHub App ID
+   - `GITHUB_PRIVATE_KEY`: Your GitHub App private key (include BEGIN/END lines)
+   - `GITHUB_WEBHOOK_SECRET`: Your GitHub webhook secret
+
+### Trigger.dev Configuration
+   - `TRIGGER_DEV_TOKEN`: Your trigger.dev API token for deployment
+
+### OpenAI API Configuration  
+   - `OPENAI_API_KEY`: Your OpenAI API key for AI-powered features
+
+### Optional Configuration
+   - `TRIGGER_API_URL`: Custom trigger.dev API URL (defaults to production if not specified)
 
 ## Step 3: Update GitHub App Webhook URL
 
