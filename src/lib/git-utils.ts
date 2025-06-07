@@ -1,5 +1,5 @@
-import { execSync } from "child_process";
-import { logger } from "@trigger.dev/sdk/v3";
+import { execSync, spawn, execFileSync } from "child_process";
+import { loggers } from "./structured-logger";
 
 /**
  * Safe git utilities that prevent shell injection attacks.
@@ -25,69 +25,76 @@ export function sanitizeForShell(input: string): string {
 }
 
 /**
- * Execute a git commit with safe argument handling.
- * Prevents shell injection by using execSync with properly escaped arguments.
+ * Execute a git commit with safe argument handling using spawn.
+ * Prevents shell injection by using spawn with separate arguments.
  */
-export function safeGitCommit(message: string, options: { cwd: string; allowEmpty?: boolean }): void {
+export async function safeGitCommit(message: string, options: { cwd: string; allowEmpty?: boolean }): Promise<void> {
   const sanitizedMessage = sanitizeForShell(message);
   
   if (!sanitizedMessage) {
     throw new Error('Commit message cannot be empty after sanitization');
   }
   
-  logger.log('Executing safe git commit', { 
-    messageLenth: sanitizedMessage.length,
+  const logger = loggers.git.child({ operation: 'commit' });
+  
+  logger.startOperation('git-commit', { 
+    messageLength: sanitizedMessage.length,
     allowEmpty: options.allowEmpty || false,
     cwd: options.cwd
   });
   
-  try {
-    // Build the git commit command with proper escaping
+  return new Promise<void>((resolve, reject) => {
+    // Build the git commit arguments array
     const args = ['commit'];
     if (options.allowEmpty) {
       args.push('--allow-empty');
     }
-    args.push('-m');
+    args.push('-m', sanitizedMessage);
     
-    // Use double quotes and escape any remaining quotes in the message
-    const escapedMessage = sanitizedMessage.replace(/"/g, '\\"');
-    const command = `git ${args.join(' ')} "${escapedMessage}"`;
-    
-    execSync(command, {
+    const gitProcess = spawn('git', args, {
       cwd: options.cwd,
-      stdio: 'inherit',
-      encoding: 'utf-8'
+      stdio: 'inherit'
     });
     
-    logger.log('Git commit completed successfully');
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Safe git commit failed', { error: errorMessage, cwd: options.cwd });
-    throw new Error(`Git commit failed: ${errorMessage}`);
-  }
+    gitProcess.on('close', (code) => {
+      if (code === 0) {
+        logger.completeOperation('git-commit');
+        resolve();
+      } else {
+        const errorMessage = `Git commit failed with exit code ${code}`;
+        logger.failOperation('git-commit', errorMessage, { exitCode: code });
+        reject(new Error(errorMessage));
+      }
+    });
+    
+    gitProcess.on('error', (error) => {
+      logger.failOperation('git-commit', error, { processError: true });
+      reject(new Error(`Git commit failed: ${error.message}`));
+    });
+  });
 }
 
 /**
- * Execute git commands safely with proper argument handling.
+ * Execute git commands safely using execFileSync for proper argument separation.
+ * Prevents shell injection by using execFileSync with separate arguments.
  */
 export function safeGitCommand(command: string[], options: { cwd: string; stdio?: 'inherit' | 'pipe' }): string {
-  logger.log('Executing safe git command', { command: command.join(' '), cwd: options.cwd });
+  const logger = loggers.git.child({ operation: command[0] });
+  
+  logger.startOperation(`git-${command[0]}`, { command: command.join(' '), cwd: options.cwd });
   
   try {
-    const result = execSync(`git ${command.join(' ')}`, {
+    const result = execFileSync('git', command, {
       cwd: options.cwd,
       stdio: options.stdio || 'pipe',
       encoding: 'utf-8'
     });
     
+    logger.completeOperation(`git-${command[0]}`);
     return result.toString();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('Safe git command failed', { 
-      command: command.join(' '), 
-      error: errorMessage, 
-      cwd: options.cwd 
-    });
+    logger.failOperation(`git-${command[0]}`, errorMessage);
     throw new Error(`Git command failed: ${errorMessage}`);
   }
 }
@@ -96,11 +103,15 @@ export function safeGitCommand(command: string[], options: { cwd: string; stdio?
  * Check if there are any staged changes in the repository.
  */
 export function hasStageChanges(repoPath: string): boolean {
+  const logger = loggers.git.child({ operation: 'status-check' });
+  
   try {
     const status = safeGitCommand(['status', '--porcelain'], { cwd: repoPath });
-    return status.trim().length > 0;
+    const hasChanges = status.trim().length > 0;
+    logger.debug('stage-changes-check', 'Checked for staged changes', { hasChanges, repoPath });
+    return hasChanges;
   } catch (error) {
-    logger.warn('Failed to check git status', { error: String(error), repoPath });
+    logger.warn('stage-changes-check-failed', 'Failed to check git status', { error: String(error), repoPath });
     return false;
   }
 }
@@ -109,10 +120,14 @@ export function hasStageChanges(repoPath: string): boolean {
  * Get git diff for staged changes.
  */
 export function getStagedDiff(repoPath: string): string {
+  const logger = loggers.git.child({ operation: 'diff' });
+  
   try {
-    return safeGitCommand(['diff', '--cached'], { cwd: repoPath });
+    const diff = safeGitCommand(['diff', '--cached'], { cwd: repoPath });
+    logger.debug('staged-diff-retrieved', 'Retrieved staged diff', { diffLength: diff.length, repoPath });
+    return diff;
   } catch (error) {
-    logger.warn('Failed to get staged diff', { error: String(error), repoPath });
+    logger.warn('staged-diff-failed', 'Failed to get staged diff', { error: String(error), repoPath });
     return '';
   }
 }
@@ -121,6 +136,8 @@ export function getStagedDiff(repoPath: string): string {
  * Set git user configuration safely.
  */
 export function setGitUser(repoPath: string, email: string, name: string): void {
+  const logger = loggers.git.child({ operation: 'user-config' });
+  
   const sanitizedEmail = sanitizeForShell(email);
   const sanitizedName = sanitizeForShell(name);
   
@@ -131,8 +148,13 @@ export function setGitUser(repoPath: string, email: string, name: string): void 
   try {
     safeGitCommand(['config', 'user.email', sanitizedEmail], { cwd: repoPath });
     safeGitCommand(['config', 'user.name', sanitizedName], { cwd: repoPath });
-    logger.log('Git user configuration set', { email: sanitizedEmail, name: sanitizedName });
+    logger.info('git-user-configured', 'Git user configuration set', { 
+      email: sanitizedEmail, 
+      name: sanitizedName,
+      repoPath
+    });
   } catch (error) {
+    logger.error('git-user-config-failed', 'Failed to set git user', { error: String(error), repoPath });
     throw new Error(`Failed to set git user: ${error}`);
   }
 }

@@ -105,7 +105,7 @@ export async function codexRepository(
     const commitMessage = await generateCommitMessage(diffContent);
     
     // Use safe git commit that prevents shell injection
-    safeGitCommit(commitMessage, {
+    await safeGitCommit(commitMessage, {
       cwd: tempDir,
       allowEmpty: !hasChanges
     });

@@ -103,10 +103,12 @@ export async function runPlanApprovalTask(payload: GitHubContext, ctx: any) {
       const recentMilestones = await findMilestonesByDate(octokit, owner, repo, 14); // Last 14 days
       if (recentMilestones.length > 0) {
         milestone = recentMilestones[0]; // Use most recent
-        logger.info("Found milestone using date-based search", { 
-          milestoneNumber: milestone.number,
-          title: milestone.title 
-        });
+        if (milestone) {
+          logger.info("Found milestone using date-based search", { 
+            milestoneNumber: milestone.number,
+            title: milestone.title 
+          });
+        }
       }
     }
     
