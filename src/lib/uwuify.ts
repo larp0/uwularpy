@@ -4,7 +4,6 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
-import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -221,6 +220,7 @@ function uwuifyText(text: string): string {
  */
 export function getTopContributorsByMergedPRs(repoPath: string, limit: number = 5): Array<{name: string, count: number}> {
   // Import synchronously and call the function
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getTopContributorsByMergedPRs: binaryGetTopContributors } = require('./binary-uwuify');
   return binaryGetTopContributors(repoPath, limit);
 }
