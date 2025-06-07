@@ -7,6 +7,11 @@
   --foreground: #171717;
 }
 
+/* Ensure SVGs respect their size constraints */
+svg {
+  flex-shrink: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
