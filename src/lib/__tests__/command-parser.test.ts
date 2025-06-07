@@ -270,5 +270,55 @@ describe('Command Parser', () => {
       expect(result4.isDevCommand).toBe(true);
       expect(result4.command).toBe('dev fix this');
     });
+
+    // Tests for the main issue: @l should only trigger when at beginning
+    it('should only trigger @l parsing when at beginning of message', () => {
+      // These should trigger parsing (at beginning)
+      const result1 = parseCommand('@l plan');
+      expect(result1.isMention).toBe(true);
+      expect(result1.command).toBe('plan');
+      
+      const result2 = parseCommand('  @l dev fix this  '); // leading whitespace ok
+      expect(result2.isMention).toBe(true);
+      expect(result2.command).toBe('dev fix this');
+      
+      const result3 = parseCommand('@l approve');
+      expect(result3.isMention).toBe(true);
+      expect(result3.command).toBe('approve');
+    });
+
+    it('should NOT trigger @l parsing when not at beginning of message', () => {
+      // These should NOT trigger parsing (not at beginning)
+      const result1 = parseCommand('Some text @l plan');
+      expect(result1.isMention).toBe(false);
+      expect(result1.command).toBe('');
+      
+      const result2 = parseCommand('I think @l should help with this');
+      expect(result2.isMention).toBe(false);
+      expect(result2.command).toBe('');
+      
+      const result3 = parseCommand('Please @l approve this');
+      expect(result3.isMention).toBe(false);
+      expect(result3.command).toBe('');
+      
+      const result4 = parseCommand('Can someone @l dev fix this?');
+      expect(result4.isMention).toBe(false);
+      expect(result4.command).toBe('');
+      
+      const result5 = parseCommand('This is a comment with @l mentioned');
+      expect(result5.isMention).toBe(false);
+      expect(result5.command).toBe('');
+    });
+
+    it('should still work normally for @uwularpy anywhere in message', () => {
+      // @uwularpy should work anywhere (existing behavior should remain)
+      const result1 = parseCommand('Some text @uwularpy plan');
+      expect(result1.isMention).toBe(true);
+      expect(result1.command).toBe('plan');
+      
+      const result2 = parseCommand('Please @uwularpy help with this');
+      expect(result2.isMention).toBe(true);
+      expect(result2.command).toBe('help with this');
+    });
   });
 });
