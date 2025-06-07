@@ -4,7 +4,7 @@
  */
 
 // Bot configuration
-export const BOT_USERNAME = process.env.BOT_USERNAME || 'uwularpy';
+export const BOT_USERNAME = process.env.BOT_USERNAME || 'l'; // Fixed: should be 'l' not 'uwularpy'
 export const REVIEW_COMMAND = '@l r';
 
 // GitHub Copilot configuration
