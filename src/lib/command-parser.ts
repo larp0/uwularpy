@@ -1,5 +1,4 @@
 // Utility functions for parsing commands from GitHub comments
-import { classifyCommandIntent, intentToTaskType } from './ai-command-parser';
 
 export interface ParsedCommand {
   command: string;
@@ -63,13 +62,19 @@ export function parseCommand(comment: string): ParsedCommand {
   
   // Check if the comment mentions @uwularpy, @l, or self@ with various patterns
   // Handle multiple mentions by taking the first one
+  // IMPORTANT: @l should only trigger when at the beginning of the message
   const mentionPatterns = [
     /@uwularpy\b/i,
-    /@l\b/i,  // Changed to allow @l without requiring space
     /self@/i
   ];
   
-  const isMention = mentionPatterns.some(pattern => pattern.test(sanitizedComment));
+  // Check for @l only at the beginning (after optional whitespace)
+  const atLBeginningPattern = /^\s*@l\b/i;
+  
+  const hasUwularpy = mentionPatterns.some(pattern => pattern.test(sanitizedComment));
+  const hasAtLAtBeginning = atLBeginningPattern.test(sanitizedComment);
+  
+  const isMention = hasUwularpy || hasAtLAtBeginning;
   
   if (!isMention) {
     return {
@@ -81,16 +86,29 @@ export function parseCommand(comment: string): ParsedCommand {
 
   // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
   // Updated regex to handle edge cases better, including self@ prefix
-  const match = sanitizedComment.match(/@(uwularpy|l)\s*([\s\S]*?)(?=@\w+|$)/i) || 
-                sanitizedComment.match(/self@\s*(.+?)(?=@\w+|$)/i);
+  // For @l, only match if it's at the beginning of the message
+  let match;
+  
+  if (hasAtLAtBeginning) {
+    // For @l at beginning, extract everything after @l
+    match = sanitizedComment.match(/^\s*@l\s*([\s\S]*?)(?=@\w+|$)/i);
+  } else if (hasUwularpy) {
+    // For @uwularpy or self@, use the original logic (can be anywhere)
+    match = sanitizedComment.match(/@(uwularpy)\s*([\s\S]*?)(?=@\w+|$)/i) || 
+            sanitizedComment.match(/self@\s*(.+?)(?=@\w+|$)/i);
+  }
+  
   let textAfterMention = '';
   
   if (match) {
     if (match[0].startsWith('self@')) {
       // For self@ mentions, the command is in match[1]
       textAfterMention = (match[1] || '').trim();
+    } else if (hasAtLAtBeginning) {
+      // For @l at beginning, the command is in match[1]
+      textAfterMention = (match[1] || '').trim();
     } else {
-      // For @uwularpy or @l mentions, the command is in match[2]
+      // For @uwularpy mentions, the command is in match[2]
       textAfterMention = (match[2] || '').trim();
     }
   }
@@ -99,7 +117,7 @@ export function parseCommand(comment: string): ParsedCommand {
   textAfterMention = textAfterMention.replace(/\s+/g, ' ').trim();
 
   // Handle edge case where mention is at the end with no command
-  if (!textAfterMention && (/@(uwularpy|l)\s*$/i.test(sanitizedComment) || /self@\s*$/i.test(sanitizedComment))) {
+  if (!textAfterMention && (/@(uwularpy)\s*$/i.test(sanitizedComment) || /self@\s*$/i.test(sanitizedComment) || /^\s*@l\s*$/i.test(sanitizedComment))) {
     return {
       command: '',
       fullText: '',
@@ -138,8 +156,7 @@ export function parseCommand(comment: string): ParsedCommand {
  * @returns The task type to trigger
  */
 export async function getTaskType(
-  parsedCommand: ParsedCommand,
-  context?: { recentMilestone?: boolean; lastTaskType?: string }
+  parsedCommand: ParsedCommand
 ): Promise<string | null> {
   if (!parsedCommand || !parsedCommand.isMention) {
     return null;
@@ -189,60 +206,6 @@ export async function getTaskType(
   // This fetches all messages from the thread and generates appropriate responses
   console.log('[getTaskType] Non-dev @l command detected, routing to general response:', normalizedCommand);
   return 'general-response-task';
-}
-
-/**
- * Fallback task type determination using patterns
- * Used when AI classification fails
- */
-function getTaskTypeFallback(parsedCommand: ParsedCommand): string | null {
-  const normalizedCommand = parsedCommand.command.toLowerCase().trim();
-  
-  console.log('[getTaskTypeFallback] Using pattern matching for:', normalizedCommand);
-  console.log('[getTaskTypeFallback] Normalized command length:', normalizedCommand.length);
-  console.log('[getTaskTypeFallback] Normalized command chars:', normalizedCommand.split(''));
-  
-  // Check for approval patterns first
-  if (isApprovalCommand(normalizedCommand)) {
-    console.log('[getTaskTypeFallback] ✅ Matched approval pattern, returning plan-approval-task');
-    return 'plan-approval-task';
-  }
-  
-  // Check for refinement patterns
-  if (isRefinementCommand(normalizedCommand)) {
-    return 'plan-refinement-task';
-  }
-  
-  // Check for cancellation patterns
-  if (isCancellationCommand(normalizedCommand)) {
-    return 'plan-cancellation-task';
-  }
-  
-  // Check for execution confirmation patterns
-  if (isExecutionConfirmationCommand(normalizedCommand)) {
-    return 'plan-execution-task';
-  }
-  
-  // Check for specific commands with aliases
-  switch (normalizedCommand) {
-    case 'r':
-    case 'review':
-      return 'full-code-review';
-    case 'plan':
-    case 'planning':
-    case 'analyze':
-      return 'plan-task';
-    default:
-      // IMPORTANT: Only trigger codex-task for "@l dev " commands
-      if (parsedCommand.isDevCommand) {
-        console.log('[getTaskTypeFallback] Dev command detected, returning codex-task');
-        return 'codex-task';
-      }
-      
-      // For any other @l command, route to general response task
-      console.log('[getTaskTypeFallback] Non-dev @l command, returning general-response-task');
-      return 'general-response-task';
-  }
 }
 
 /**

@@ -85,9 +85,7 @@ export async function POST(request: NextRequest) {
           };
 
           // Determine which task to trigger (now uses AI)
-          const taskType = await getTaskType(parsedCommand, {
-            recentMilestone: true // You could enhance this by checking if a milestone was recently created
-          });
+          const taskType = await getTaskType(parsedCommand);
           console.log(`Determined task type: ${taskType}`);
           
           if (taskType) {
