@@ -4,7 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
-import OpenAI from "openai";
+import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser } from "./git-utils";
+import { generateCommitMessage, runSelfAskFlow } from "./openai-operations";
+import { processSearchReplaceBlocks } from "./file-operations";
 
 /**
  * Clone a repository, run OpenAI API in a self-ask flow by repeatedly sending prompts,
@@ -56,117 +58,57 @@ export async function codexRepository(
     execSync(`git clone ${cloneUrl} ${tempDir}`, { stdio: "inherit" });
     execSync(`git checkout -b ${branchName}`, { cwd: tempDir, stdio: "inherit" });
 
-    // Set Git identity
-    execSync('git config user.email "bot@larp.dev"', { cwd: tempDir, stdio: "inherit" });
-    execSync('git config user.name "larp0"', { cwd: tempDir, stdio: "inherit" });
+    // Set Git identity using safe utilities
+    setGitUser(tempDir, "bot@larp.dev", "larp0");
 
-    // Self-ask flow: repeatedly call Codex CLI until no new reply is generated.
-    let userText = prompt + "\n\nPlease respond with a detailed, step-by-step continuation if further clarification or changes are needed. Leave empty if complete. If you need to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
-    let newSelfReply = "";
-    let iteration = 0;
-
-    while (true) {
-      iteration++;
-      logger.log("Running OpenAI API self-ask iteration", { iteration, promptLength: userText.length });
-
-      // Run OpenAI API directly instead of Codex CLI
-      let stdoutData = "";
-      try {
-        // Initialize OpenAI client
-        const openai = new OpenAI({
-          apiKey: process.env.OPENAI_API_KEY,
+    // Self-ask flow: repeatedly call OpenAI API until no new reply is generated.
+    const responses = await runSelfAskFlow(prompt);
+    
+    if (responses.length === 0) {
+      logger.log("No responses generated from self-ask flow");
+    } else {
+      logger.log("Self-ask flow completed", { responsesCount: responses.length });
+      
+      // Process search/replace operations from all responses
+      for (let i = 0; i < responses.length; i++) {
+        const response = responses[i];
+        logger.log("Processing response", { index: i + 1, responseLength: response.length });
+        
+        // Run evaluator-optimizer on the reply
+        const optimizedReply = evaluateAndOptimize(response, tempDir);
+        logger.log("Evaluated and optimized reply", {
+          iteration: i + 1,
+          originalLength: response.length,
+          optimizedLength: optimizedReply.length
         });
 
-        logger.log("Calling OpenAI API", { inputLength: userText.length });
-        
-        // Call OpenAI API with the prompt
-        const response = await openai.chat.completions.create({
-          model: "gpt-4.1-mini", // Use GPT-4 instead of Codex for better results
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful coding assistant. When asked to modify files, use SEARCH/REPLACE blocks following this format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```"
-            },
-            {
-              role: "user", 
-              content: userText
-            }
-          ],
-          max_tokens: 30000,
-          temperature: 0.3
-        });
-        
-        stdoutData = response.choices[0]?.message?.content || "";
-        
-        // Log the output for debugging
-        logger.log("OpenAI API response received", { 
-          stdoutLength: stdoutData.length,
-          stdoutPreview: stdoutData.substring(0, 100) 
-        });
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : String(e);
-        logger.error("OpenAI API call failed", { 
-          error: errorMsg,
-          iteration,
-          promptLength: userText.length
-        });
-        
-        // Throw an error on the first iteration, but continue after that
-        if (iteration === 1) {
-          throw new Error(`OpenAI API failed to process input: ${errorMsg}`);
-        } else {
-          break; // exit loop after at least one iteration
+        // Process any search/replace blocks in the reply
+        const searchReplaceChanges = processSearchReplaceBlocks(optimizedReply, tempDir);
+        if (searchReplaceChanges.length > 0) {
+          logger.log("Applied search/replace operations", {
+            iteration: i + 1,
+            changesCount: searchReplaceChanges.length,
+            changes: searchReplaceChanges
+          });
         }
       }
-
-      // Process the API response directly
-      newSelfReply = stdoutData.trim();
-      logger.log("Self-ask reply", { newSelfReplyLength: newSelfReply.length });
-
-      // If no new reply or reply is identical to previous input, break the loop
-      if (!newSelfReply || newSelfReply === userText) {
-        logger.log("No new self reply, ending self-ask flow", { iteration });
-        break;
-      }
-
-      // Run evaluator-optimizer on the reply
-      const optimizedReply = evaluateAndOptimize(newSelfReply, tempDir);
-      logger.log("Evaluated and optimized reply", {
-        iteration,
-        originalLength: newSelfReply.length,
-        optimizedLength: optimizedReply.length
-      });
-
-      // Process any search/replace blocks in the reply
-      const searchReplaceChanges = processSearchReplaceBlocks(optimizedReply, tempDir);
-      if (searchReplaceChanges.length > 0) {
-        logger.log("Applied search/replace operations", {
-          iteration,
-          changesCount: searchReplaceChanges.length,
-          changes: searchReplaceChanges
-        });
-      }
-
-      // Update prompt for next iteration
-      userText = optimizedReply;
     }
 
-    // Commit and push changes
+    // Commit and push changes using safe git utilities
     execSync("git add .", { cwd: tempDir, stdio: "inherit" });
     
     // Check if there are any changes to commit
-    const gitStatus = execSync('git status --porcelain', { encoding: 'utf-8', cwd: tempDir }).toString().trim();
+    const hasChanges = hasStageChanges(tempDir);
     
     // Generate AI commit message
-    const commitMessage = await generateCommitMessage(tempDir, gitStatus);
+    const diffContent = hasChanges ? getStagedDiff(tempDir) : '';
+    const commitMessage = await generateCommitMessage(diffContent);
     
-    if (!gitStatus) {
-      logger.log("No changes were made. Creating empty commit.");
-      execSync(`git commit --allow-empty -m "${commitMessage}"`, { cwd: tempDir, stdio: "inherit" });
-    } else {
-      logger.log("Committing changes");
-      execSync(`git commit -m "${commitMessage}"`, { cwd: tempDir, stdio: "inherit" });
-    }
+    // Use safe git commit that prevents shell injection
+    safeGitCommit(commitMessage, {
+      cwd: tempDir,
+      allowEmpty: !hasChanges
+    });
     
     execSync(`git push -u origin ${branchName}`, {
       cwd: tempDir,
@@ -186,68 +128,6 @@ export async function codexRepository(
     }
     logger.error("codexRepository failed", { error: msg, repoUrl, branchName });
     throw new Error(`Error processing repository ${repoUrl}: ${msg}. Please check repository settings and try again.`);
-  }
-}
-
-/**
- * Generate an AI-powered commit message based on the git diff.
- * @param repoPath - Path to the repository.
- * @param gitStatus - Output from git status --porcelain.
- * @returns Generated commit message.
- */
-async function generateCommitMessage(repoPath: string, gitStatus: string): Promise<string> {
-  try {
-    let diffContent = "";
-    
-    if (gitStatus) {
-      // Get the actual diff for staged changes
-      diffContent = execSync('git diff --cached', { encoding: 'utf-8', cwd: repoPath }).toString();
-    }
-    
-    if (!diffContent.trim()) {
-      // No diff available, return a default message for empty commits
-      return "Apply changes from OpenAI API self-ask flow (no changes made)";
-    }
-    
-    // Initialize OpenAI client
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-    
-    logger.log("Generating AI commit message", { diffLength: diffContent.length });
-    
-    // Send diff to GPT-4.1-mini for commit message generation
-    const response = await openai.chat.completions.create({
-      model: "gpt-4.1-nano",
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful assistant that generates concise, informative git commit messages. Based on the provided git diff, create a single line commit message that clearly describes what was changed. Use conventional commit format when appropriate (feat:, fix:, refactor:, etc.). Keep it under 72 characters if possible."
-        },
-        {
-          role: "user",
-          content: `Generate a commit message for this git diff:\n\n${diffContent}`
-        }
-      ],
-      max_tokens: 420,
-      temperature: 0.3
-    });
-    
-    const generatedMessage = response.choices[0]?.message?.content?.trim() || "Apply changes from OpenAI API self-ask flow";
-    
-    // Remove quotes if present and ensure it's a single line
-    const cleanMessage = generatedMessage.replace(/^["']|["']$/g, '').split('\n')[0].trim();
-    
-    logger.log("Generated commit message", { message: cleanMessage });
-    
-    return cleanMessage;
-  } catch (error) {
-    logger.warn("Failed to generate AI commit message, using fallback", { 
-      error: error instanceof Error ? error.message : String(error) 
-    });
-    return gitStatus 
-      ? "Apply changes from OpenAI API self-ask flow"
-      : "Apply changes from OpenAI API self-ask flow (no changes made)";
   }
 }
 
@@ -323,65 +203,6 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
     .replace(/(?<!\n)(\d+\.\s)/g, "\n$1");
 
   return finalOptimizedReply;
-}
-
-/**
- * Process search/replace blocks in the reply and apply them to repository files.
- * @param reply - The reply from OpenAI API.
- * @param repoPath - Path to the repository.
- * @returns Array of changes made.
- */
-function processSearchReplaceBlocks(reply: string, repoPath: string): Array<{ file: string; applied: boolean }> {
-  const changes: Array<{ file: string; applied: boolean }> = [];
-
-  // Find all search-replace blocks
-  const searchReplaceRegex = /```search-replace\n([\s\S]*?)```/g;
-  let match;
-
-  while ((match = searchReplaceRegex.exec(reply)) !== null) {
-    const block = match[1];
-
-    // Extract file path
-    const fileMatch = block.match(/FILE:\s*(.*)/);
-    if (!fileMatch) continue;
-
-    const filePath = path.join(repoPath, fileMatch[1].trim());
-    if (!fs.existsSync(filePath)) {
-      logger.warn("Search/replace target file does not exist", { filePath });
-      changes.push({ file: fileMatch[1].trim(), applied: false });
-      continue;
-    }
-
-    // Find all SEARCH/REPLACE operations
-    const operationRegex = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
-    let fileContent = fs.readFileSync(filePath, "utf-8");
-    let operationMatch;
-    let fileModified = false;
-
-    while ((operationMatch = operationRegex.exec(block)) !== null) {
-      const searchText = operationMatch[1];
-      const replaceText = operationMatch[2];
-
-      if (fileContent.includes(searchText)) {
-        fileContent = fileContent.replace(searchText, replaceText);
-        fileModified = true;
-      } else {
-        logger.warn("Search text not found in file", {
-          filePath,
-          searchTextLength: searchText.length
-        });
-      }
-    }
-
-    if (fileModified) {
-      fs.writeFileSync(filePath, fileContent, "utf-8");
-      changes.push({ file: fileMatch[1].trim(), applied: true });
-    } else {
-      changes.push({ file: fileMatch[1].trim(), applied: false });
-    }
-  }
-
-  return changes;
 }
 
 /**
