@@ -22,9 +22,6 @@ export default defineConfig({
   dirs: ["./src/trigger"],
   // Add additionalFiles extension to include the uwuify binary
   build: {
-    env: {
-      NODE_VERSION: '23.0.0', // Specify the desired Node.js version here
-    },
     extensions: [
       additionalFiles({
         files: ["src/lib/bin/uwuify"]
