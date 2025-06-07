@@ -218,7 +218,7 @@ async function generateCommitMessage(repoPath: string, gitStatus: string): Promi
     
     // Send diff to GPT-4.1-mini for commit message generation
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Note: using gpt-4o-mini as gpt-4.1-mini doesn't exist
+      model: "gpt-4.1-nano",
       messages: [
         {
           role: "system",
@@ -229,7 +229,7 @@ async function generateCommitMessage(repoPath: string, gitStatus: string): Promi
           content: `Generate a commit message for this git diff:\n\n${diffContent}`
         }
       ],
-      max_tokens: 100,
+      max_tokens: 420,
       temperature: 0.3
     });
     
