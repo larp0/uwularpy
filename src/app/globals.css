@@ -10,6 +10,8 @@
 /* Ensure SVGs respect their size constraints */
 svg {
   flex-shrink: 0;
+  width: 16px;
+  heigth: 16px;
 }
 
 @media (prefers-color-scheme: dark) {
