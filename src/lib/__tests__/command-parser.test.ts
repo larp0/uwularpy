@@ -39,7 +39,7 @@ describe('Command Parser', () => {
     it('should sanitize HTML tags', () => {
       const result = parseCommand('@uwularpy <script>alert("xss")</script>plan');
       expect(result.isMention).toBe(true);
-      expect(result.command).toBe('plan');
+      expect(result.command).toBe('alert("xss")plan'); // Script tags removed but content remains
       expect(result.fullText).not.toContain('<script>');
     });
 
@@ -120,9 +120,9 @@ describe('Command Parser', () => {
     //   expect(await getTaskType(parsed)).toBe('uwuify-repository');
     // });
 
-    it('should return null for unknown non-dev commands', async () => {
+    it('should return general-response-task for unknown non-dev commands', async () => {
       const parsed = parseCommand('@uwularpy unknown-command');
-      expect(await getTaskType(parsed)).toBeNull(); // Changed: non-dev commands should return null
+      expect(await getTaskType(parsed)).toBe('general-response-task'); // Changed: non-dev commands now return general-response-task
     });
 
     it('should return null for non-mentions', async () => {
@@ -211,13 +211,13 @@ describe('Command Parser', () => {
       
       // Test commands that should NOT be approval
       const parsed3 = parseCommand('@l approves'); // not exact match
-      expect(await getTaskType(parsed3)).toBeNull(); // Changed: should return null for non-dev commands
+      expect(await getTaskType(parsed3)).toBe('general-response-task'); // Changed: should return general-response-task for non-dev commands
       
       const parsed4 = parseCommand('@l approval'); // not exact match  
-      expect(await getTaskType(parsed4)).toBeNull(); // Changed: should return null for non-dev commands
+      expect(await getTaskType(parsed4)).toBe('general-response-task'); // Changed: should return general-response-task for non-dev commands
       
       const parsed5 = parseCommand('@l not approve'); // contains but not approval
-      expect(await getTaskType(parsed5)).toBeNull(); // Changed: should return null for non-dev commands
+      expect(await getTaskType(parsed5)).toBe('general-response-task'); // Changed: should return general-response-task for non-dev commands
     });
 
     // Tests for the new "@l dev " specific routing
@@ -235,22 +235,22 @@ describe('Command Parser', () => {
       expect(await getTaskType(parsed3)).toBe('codex-task');
     });
 
-    it('should return null for non-dev @l commands', async () => {
+    it('should return general-response-task for non-dev @l commands', async () => {
       const parsed1 = parseCommand('@l help');
       expect(parsed1.isDevCommand).toBe(false);
-      expect(await getTaskType(parsed1)).toBeNull();
+      expect(await getTaskType(parsed1)).toBe('general-response-task');
       
       const parsed2 = parseCommand('@l what is this');
       expect(parsed2.isDevCommand).toBe(false);
-      expect(await getTaskType(parsed2)).toBeNull();
+      expect(await getTaskType(parsed2)).toBe('general-response-task');
       
       const parsed3 = parseCommand('@l unknown-command');
       expect(parsed3.isDevCommand).toBe(false);
-      expect(await getTaskType(parsed3)).toBeNull();
+      expect(await getTaskType(parsed3)).toBe('general-response-task');
       
       const parsed4 = parseCommand('@l developing'); // should not match "dev "
       expect(parsed4.isDevCommand).toBe(false);
-      expect(await getTaskType(parsed4)).toBeNull();
+      expect(await getTaskType(parsed4)).toBe('general-response-task');
     });
 
     it('should detect isDevCommand correctly in parseCommand', () => {

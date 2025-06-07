@@ -65,7 +65,7 @@ export function parseCommand(comment: string): ParsedCommand {
   // Handle multiple mentions by taking the first one
   const mentionPatterns = [
     /@uwularpy\b/i,
-    /@l\s+/i,
+    /@l\b/i,  // Changed to allow @l without requiring space
     /self@/i
   ];
   
@@ -81,9 +81,19 @@ export function parseCommand(comment: string): ParsedCommand {
 
   // Extract text after the mention (case-insensitive, allow for punctuation/whitespace)
   // Updated regex to handle edge cases better, including self@ prefix
-  const match = sanitizedComment.match(/@(uwularpy|l)\s+([\s\S]*?)(?=@\w+|$)/i) || 
+  const match = sanitizedComment.match(/@(uwularpy|l)\s*([\s\S]*?)(?=@\w+|$)/i) || 
                 sanitizedComment.match(/self@\s*(.+?)(?=@\w+|$)/i);
-  let textAfterMention = match ? (match[2] || match[1]).trim() : '';
+  let textAfterMention = '';
+  
+  if (match) {
+    if (match[0].startsWith('self@')) {
+      // For self@ mentions, the command is in match[1]
+      textAfterMention = (match[1] || '').trim();
+    } else {
+      // For @uwularpy or @l mentions, the command is in match[2]
+      textAfterMention = (match[2] || '').trim();
+    }
+  }
   
   // Additional cleanup to handle any hidden characters or extra whitespace
   textAfterMention = textAfterMention.replace(/\s+/g, ' ').trim();
@@ -135,9 +145,9 @@ export async function getTaskType(
     return null;
   }
 
-  // If no command text, return null for now (could be enhanced to provide general help)
+  // If no command text, analyze the thread and provide general response
   if (!parsedCommand.command) {
-    return null;
+    return 'general-response-task';
   }
 
   // Priority commands that should work without AI
@@ -151,7 +161,8 @@ export async function getTaskType(
     return 'plan-approval-task';
   }
   
-  if (normalizedCommand === 'plan' || normalizedCommand === 'planning' || normalizedCommand === 'analyze') {
+  if (normalizedCommand === 'plan' || normalizedCommand === 'planning' || normalizedCommand === 'analyze' ||
+      normalizedCommand.startsWith('plan ') || normalizedCommand.startsWith('planning ') || normalizedCommand.startsWith('analyze ')) {
     console.log('[getTaskType] Direct match for plan command:', normalizedCommand);
     return 'plan-task';
   }
@@ -174,11 +185,10 @@ export async function getTaskType(
     return 'codex-task';
   }
 
-  // For other @l commands, we return null for now (no action)
-  // In the future, this could be enhanced to provide contextual responses
-  // by fetching thread messages and generating appropriate responses
-  console.log('[getTaskType] Non-dev @l command detected, no action taken:', normalizedCommand);
-  return null;
+  // For other @l commands, we analyze the thread and provide contextual responses
+  // This fetches all messages from the thread and generates appropriate responses
+  console.log('[getTaskType] Non-dev @l command detected, routing to general response:', normalizedCommand);
+  return 'general-response-task';
 }
 
 /**
@@ -229,9 +239,9 @@ function getTaskTypeFallback(parsedCommand: ParsedCommand): string | null {
         return 'codex-task';
       }
       
-      // For any other @l command, return null (no action)
-      console.log('[getTaskTypeFallback] Non-dev @l command, returning null');
-      return null;
+      // For any other @l command, route to general response task
+      console.log('[getTaskTypeFallback] Non-dev @l command, returning general-response-task');
+      return 'general-response-task';
   }
 }
 
