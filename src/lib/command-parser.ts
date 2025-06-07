@@ -139,7 +139,9 @@ export async function getTaskType(
   const normalizedCommand = parsedCommand.command.toLowerCase().trim();
   
   // Handle critical commands directly without AI to ensure they always work
-  if (normalizedCommand === 'approve' || normalizedCommand === 'yes' || normalizedCommand === 'y' || normalizedCommand === 'ok') {
+  // Use a comprehensive list that matches isApprovalCommand patterns
+  const directApprovalPatterns = ['approve', 'yes', 'y', 'ok', 'okay', 'lgtm'];
+  if (directApprovalPatterns.includes(normalizedCommand)) {
     console.log('[getTaskType] Direct match for approval command:', normalizedCommand);
     return 'plan-approval-task';
   }
