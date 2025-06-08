@@ -32,13 +32,20 @@ describe('Code Generation with OpenAI API', () => {
     // Mock OPENAI_API_KEY for testing
     process.env.OPENAI_API_KEY = 'sk-test-key-mock';
     
-    // Reset all mocks to prevent state bleed between tests
+    // Explicitly reset all mocks to prevent state bleed between tests
     jest.clearAllMocks();
-    OpenAI.mockClear();
+    jest.resetAllMocks();
+    jest.resetModules();
     
-    // Get the mock create function
+    // Clear OpenAI constructor and instance mocks
+    OpenAI.mockClear();
+    OpenAI.mockReset();
+    
+    // Get the mock create function and reset it
     const mockInstance = new OpenAI();
     mockCreate = mockInstance.chat.completions.create;
+    mockCreate.mockClear();
+    mockCreate.mockReset();
     
     // Set up default mock response
     mockCreate.mockResolvedValue({
@@ -49,6 +56,13 @@ describe('Code Generation with OpenAI API', () => {
   afterEach(() => {
     // Restore original environment
     process.env = originalEnv;
+    
+    // Additional cleanup to ensure test isolation
+    jest.clearAllMocks();
+    jest.resetAllMocks();
+    
+    // Explicitly clear any module cache to prevent state leaks
+    jest.clearAllTimers();
   });
 
   test('should have generateCodeChanges function available', () => {

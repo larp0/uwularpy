@@ -12,6 +12,49 @@ export interface MilestoneSearchOptions {
   debugMode?: boolean; // Enable detailed logging
 }
 
+export interface GitHubMilestone {
+  id: number;
+  number: number;
+  title: string;
+  description: string | null;
+  state: 'open' | 'closed';
+  created_at: string;
+  updated_at: string;
+  due_on: string | null;
+  closed_at: string | null;
+  creator: {
+    login: string;
+    id: number;
+    avatar_url: string;
+    type: string;
+  } | null;
+  open_issues: number;
+  closed_issues: number;
+  html_url: string;
+  url: string; // Add missing url property
+}
+
+export interface GitHubComment {
+  id: number;
+  user: {
+    login: string;
+    id: number;
+    avatar_url: string;
+    type: string;
+  } | null;
+  created_at: string;
+  updated_at: string;
+  body?: string | null; // Optional and can be null or undefined
+  html_url: string;
+}
+
+export interface MilestoneSearchResult {
+  milestone: GitHubMilestone;
+  commentCreatedAt: string;
+  foundIn: string;
+  pattern: string;
+}
+
 /**
  * Enhanced milestone finding function with better pattern matching and debugging.
  */
@@ -36,7 +79,7 @@ export async function findMostRecentMilestoneEnhanced(
       debugMode 
     });
 
-    // Get recent comments
+    // Get recent comments 
     const { data: comments } = await octokit.issues.listComments({
       owner,
       repo,
@@ -72,12 +115,7 @@ export async function findMostRecentMilestoneEnhanced(
       /assigned to milestone.*?#(\d+)/gi
     ];
 
-    const foundMilestones: Array<{
-      milestone: any;
-      commentCreatedAt: string;
-      foundIn: string;
-      pattern: string;
-    }> = [];
+    const foundMilestones: MilestoneSearchResult[] = [];
 
     // Search through comments
     for (const comment of comments) {

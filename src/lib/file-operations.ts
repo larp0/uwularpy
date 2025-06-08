@@ -90,7 +90,91 @@ export function safeWriteFile(filePath: string, content: string, repoPath: strin
 }
 
 /**
- * Apply a single search/replace operation to a file.
+ * Validate search/replace block before applying.
+ */
+export interface SearchReplaceValidation {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export function validateSearchReplaceBlock(
+  filePath: string,
+  searchText: string,
+  replaceText: string,
+  content: string
+): SearchReplaceValidation {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Check for empty or invalid inputs
+  if (!searchText.trim()) {
+    errors.push("Search text cannot be empty");
+  }
+
+  if (searchText === replaceText) {
+    warnings.push("Search and replace text are identical");
+  }
+
+  // Check for dangerous patterns
+  const dangerousPatterns = [
+    /rm\s+-rf/i,
+    /sudo\s+/i,
+    /eval\s*\(/i,
+    /exec\s*\(/i,
+    /system\s*\(/i,
+    /shell_exec/i,
+    /process\.exit/i,
+    /\.\.\/.*\.\.\//,  // Path traversal
+    /__proto__/i,      // Prototype pollution
+    /constructor.*prototype/i
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (pattern.test(searchText) || pattern.test(replaceText)) {
+      errors.push(`Potentially dangerous pattern detected: ${pattern.source}`);
+    }
+  }
+
+  // Check for extremely large replacements that might be suspicious
+  if (replaceText.length > 10000) {
+    warnings.push("Replacement text is very large (>10KB)");
+  }
+
+  // Check if search text appears multiple times
+  const searchMatches = content.split(searchText).length - 1;
+  if (searchMatches > 1) {
+    warnings.push(`Search text appears ${searchMatches} times in file - only first occurrence will be replaced`);
+  }
+
+  // Check for potential syntax issues in code files
+  if (filePath.endsWith('.ts') || filePath.endsWith('.js')) {
+    // Basic bracket/brace matching
+    const searchBrackets = (searchText.match(/[{}]/g) || []).length;
+    const replaceBrackets = (replaceText.match(/[{}]/g) || []).length;
+    
+    if (Math.abs(searchBrackets - replaceBrackets) > 2) {
+      warnings.push("Significant bracket count mismatch between search and replace");
+    }
+
+    // Check for unmatched quotes
+    const searchQuotes = (searchText.match(/['"]/g) || []).length;
+    const replaceQuotes = (replaceText.match(/['"]/g) || []).length;
+    
+    if (searchQuotes % 2 !== 0 || replaceQuotes % 2 !== 0) {
+      warnings.push("Potential unmatched quotes detected");
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
+/**
+ * Apply a single search/replace operation to a file with enhanced validation.
  */
 export function applySearchReplace(
   filePath: string,
@@ -103,6 +187,25 @@ export function applySearchReplace(
     return false;
   }
   
+  // Enhanced validation before applying changes
+  const validation = validateSearchReplaceBlock(filePath, searchText, replaceText, content);
+  
+  if (!validation.isValid) {
+    logger.error("Search/replace validation failed", {
+      filePath,
+      errors: validation.errors,
+      warnings: validation.warnings
+    });
+    return false;
+  }
+
+  if (validation.warnings.length > 0) {
+    logger.warn("Search/replace validation warnings", {
+      filePath,
+      warnings: validation.warnings
+    });
+  }
+  
   if (!content.includes(searchText)) {
     logger.warn("Search text not found in file", {
       filePath,
@@ -112,8 +215,37 @@ export function applySearchReplace(
     return false;
   }
   
-  const newContent = content.replace(searchText, replaceText);
-  return safeWriteFile(filePath, newContent, repoPath);
+  // Create backup before making changes
+  const backupPath = backupFile(filePath, repoPath);
+  
+  try {
+    // Use replaceAll for consistent behavior, but only replace first occurrence for safety
+    const searchIndex = content.indexOf(searchText);
+    const newContent = content.substring(0, searchIndex) + 
+                      replaceText + 
+                      content.substring(searchIndex + searchText.length);
+    
+    const success = safeWriteFile(filePath, newContent, repoPath);
+    
+    if (!success && backupPath) {
+      // Restore from backup if write failed
+      restoreFromBackup(backupPath, path.join(repoPath, filePath));
+    }
+    
+    return success;
+  } catch (error) {
+    logger.error("Failed to apply search/replace", {
+      filePath,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    
+    // Restore from backup on error
+    if (backupPath) {
+      restoreFromBackup(backupPath, path.join(repoPath, filePath));
+    }
+    
+    return false;
+  }
 }
 
 /**

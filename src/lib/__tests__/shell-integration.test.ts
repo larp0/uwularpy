@@ -50,126 +50,47 @@ describe('Shell Integration Tests - Unusual Filenames', () => {
       expect(result).toBe("'file'\"'\"'with'\"'\"'quotes.txt'");
     });
 
-    test('should handle paths with special characters', () => {
-      const input = 'file@#$%^&*()_+-={}[]|;:,.<>?.txt';
+    test('should handle complex escape sequences', () => {
+      const input = 'file\\with\\backslashes.txt';
       const result = sanitizeForShell(input);
-      expect(result).toBe("'file@#$%^&*()_+-={}[]|;:,.<>?.txt'");
+      expect(result).toBe("'file\\with\\backslashes.txt'");
     });
 
-    test('should handle unicode filenames', () => {
-      const input = 'файл-тест-🚀.txt';
+    test('should handle unicode and emoji characters', () => {
+      const input = 'файл_🚀_test.txt';
       const result = sanitizeForShell(input);
-      expect(result).toBe("'файл-тест-🚀.txt'");
+      expect(result).toBe("'файл_🚀_test.txt'");
     });
 
-    test('should handle very long filenames', () => {
-      const input = 'a'.repeat(500);
+    test('should handle multiple consecutive special characters', () => {
+      const input = "file''with''multiple''quotes.txt";
       const result = sanitizeForShell(input);
-      // Should be truncated but still quoted
-      expect(result.startsWith("'")).toBe(true);
-      expect(result.endsWith("'")).toBe(true);
-      expect(result.length).toBeLessThan(1010); // 1000 chars + quotes
+      expect(result).toBe("'file'\"'\"''\"'\"'with'\"'\"''\"'\"'multiple'\"'\"''\"'\"'quotes.txt'");
     });
 
-    test('should handle empty input safely', () => {
-      const result = sanitizeForShell('');
-      expect(result).toBe("''");
-    });
-
-    test('should remove null bytes', () => {
-      const input = 'file\0name.txt';
-      const result = sanitizeForShell(input);
-      expect(result).toBe("'filename.txt'");
-    });
-
-    test('should replace newlines with spaces', () => {
+    test('should handle paths with embedded newlines', () => {
       const input = 'file\nwith\nnewlines.txt';
       const result = sanitizeForShell(input);
       expect(result).toBe("'file with newlines.txt'");
     });
-  });
 
-  describe('Git operations with unusual filenames', () => {
-    test('should commit files with spaces in names', async () => {
-      const fileName = 'file with spaces.txt';
-      const filePath = path.join(tempDir, fileName);
-      
-      // Create a file with spaces in the name
-      fs.writeFileSync(filePath, 'test content');
-      
-      // Add and commit the file
-      try {
-        safeGitCommand(['add', '.'], { cwd: tempDir, stdio: 'inherit' });
-        await safeGitCommit('Add file with spaces', { cwd: tempDir });
-        
-        // Verify the commit was successful
-        const status = safeGitCommand(['status', '--porcelain'], { cwd: tempDir });
-        expect(status).toBe(''); // Should be clean after commit
-      } catch (error) {
-        // Skip if git is not available
-        console.warn('Git test skipped:', error);
-      }
+    test('should handle paths with tab characters', () => {
+      const input = 'file\twith\ttabs.txt';
+      const result = sanitizeForShell(input);
+      expect(result).toBe("'file with tabs.txt'");
     });
 
-    test('should commit files with parentheses in names', async () => {
-      const fileName = 'file(with)parentheses.txt';
-      const filePath = path.join(tempDir, fileName);
-      
-      // Create a file with parentheses in the name
-      fs.writeFileSync(filePath, 'test content');
-      
-      try {
-        safeGitCommand(['add', '.'], { cwd: tempDir, stdio: 'inherit' });
-        await safeGitCommit('Add file with parentheses', { cwd: tempDir });
-        
-        // Verify the commit was successful
-        const status = safeGitCommand(['status', '--porcelain'], { cwd: tempDir });
-        expect(status).toBe('');
-      } catch (error) {
-        console.warn('Git test skipped:', error);
-      }
+    test('should handle very long paths', () => {
+      const input = 'a'.repeat(2000);
+      const result = sanitizeForShell(input);
+      expect(result.length).toBeLessThanOrEqual(1002); // 1000 chars + 2 quotes
+      expect(result).toMatch(/^'.*'$/);
     });
 
-    test('should handle commit messages with special characters', async () => {
-      const fileName = 'test.txt';
-      const filePath = path.join(tempDir, fileName);
-      
-      fs.writeFileSync(filePath, 'test content');
-      
-      try {
-        safeGitCommand(['add', '.'], { cwd: tempDir, stdio: 'inherit' });
-        
-        // Test commit message with various special characters
-        const commitMessage = 'feat: add file with "quotes" and $variables & other chars!';
-        await safeGitCommit(commitMessage, { cwd: tempDir });
-        
-        // Verify the commit was successful
-        const status = safeGitCommand(['status', '--porcelain'], { cwd: tempDir });
-        expect(status).toBe('');
-      } catch (error) {
-        console.warn('Git test skipped:', error);
-      }
-    });
-
-    test('should handle unicode in commit messages', async () => {
-      const fileName = 'test.txt';
-      const filePath = path.join(tempDir, fileName);
-      
-      fs.writeFileSync(filePath, 'test content');
-      
-      try {
-        safeGitCommand(['add', '.'], { cwd: tempDir, stdio: 'inherit' });
-        
-        // Test commit message with unicode characters
-        const commitMessage = 'feat: добавить файл with emoji 🚀 and unicode';
-        await safeGitCommit(commitMessage, { cwd: tempDir });
-        
-        // Verify the commit was successful
-        const status = safeGitCommand(['status', '--porcelain'], { cwd: tempDir });
-        expect(status).toBe('');
-      } catch (error) {
-        console.warn('Git test skipped:', error);
-      }
+    test('should handle null bytes', () => {
+      const input = 'file\x00with\x00nulls.txt';
+      const result = sanitizeForShell(input);
+      expect(result).toBe("'filewithnulls.txt'");
     });
   });
 

@@ -181,6 +181,64 @@ export function setGitUser(repoPath: string, email: string, name: string): void 
 }
 
 /**
+ * Execute git push with retry and exponential backoff for resilience.
+ * @param repoPath - Repository path.
+ * @param branchName - Branch name to push.
+ * @param maxRetries - Maximum number of retry attempts (default: 3).
+ * @param baseDelay - Base delay in milliseconds (default: 1000).
+ */
+export async function safeGitPushWithRetry(
+  repoPath: string, 
+  branchName: string, 
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<void> {
+  const logger = loggers.git.child({ operation: 'push-retry' });
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      logger.info('git-push-attempt', `Git push attempt ${attempt}/${maxRetries}`, {
+        branchName, 
+        repoPath,
+        attempt 
+      });
+      
+      safeGitCommand(['push', '-u', 'origin', branchName], {
+        cwd: repoPath,
+        stdio: 'inherit'
+      });
+      
+      logger.info('git-push-success', 'Git push successful', { branchName, attempt });
+      return; // Success, exit the retry loop
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isLastAttempt = attempt === maxRetries;
+      
+      if (isLastAttempt) {
+        logger.error('git-push-failed', 'Git push failed after all retries', {
+          branchName,
+          totalAttempts: maxRetries,
+          finalError: errorMessage
+        });
+        throw new Error(`Git push failed after ${maxRetries} attempts: ${errorMessage}`);
+      } else {
+        const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
+        logger.warn('git-push-retry', `Git push attempt ${attempt} failed, retrying in ${delay}ms`, {
+          branchName,
+          attempt,
+          error: errorMessage,
+          nextRetryIn: delay
+        });
+        
+        // Wait before next attempt
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+}
+
+/**
  * Get a basic repository structure for context in code generation.
  * Returns a summary of the repository layout and important files.
  * Includes size and token limits to prevent context overflow.
@@ -259,7 +317,7 @@ export async function getRepositoryStructureAsync(repoPath: string): Promise<str
           }
         } catch (error) {
           // Ignore file reading errors but log them
-          logger.warn('Failed to read key file', { keyFile, error: String(error) });
+          logger.warn('key-file-read-failed', 'Failed to read key file', { keyFile, error: String(error) });
         }
       }
     }

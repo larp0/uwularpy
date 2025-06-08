@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
-import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure, safeGitCommand } from "./git-utils";
+import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure, getRepositoryStructureAsync, safeGitCommand, safeGitPushWithRetry } from "./git-utils";
 import { generateCommitMessage, generateCodeChanges } from "./openai-operations";
 import { processSearchReplaceBlocks } from "./file-operations";
 
@@ -156,10 +156,8 @@ export async function codexRepository(
       allowEmpty: !hasChanges
     });
     
-    safeGitCommand(['push', '-u', 'origin', branchName], {
-      cwd: tempDir,
-      stdio: 'inherit'
-    });
+    // Push with retry and backoff for resilience
+    await safeGitPushWithRetry(tempDir, branchName);
 
     return tempDir;
   } catch (err: unknown) {
@@ -189,12 +187,22 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
     // Get repository context for better code generation
     let repositoryContext = '';
     try {
-      // Get repository structure using git-utils function
-      repositoryContext = getRepositoryStructure(repoPath);
+      // Use async version for better performance with large repositories
+      repositoryContext = await getRepositoryStructureAsync(repoPath);
       logger.log("Repository context gathered", { contextLength: repositoryContext.length });
     } catch (error) {
       logger.warn("Failed to gather repository context", { error: String(error) });
-      // Continue without context - the API can still work
+      // Fallback to synchronous version as last resort
+      try {
+        repositoryContext = getRepositoryStructure(repoPath);
+        logger.log("Repository context gathered (fallback)", { contextLength: repositoryContext.length });
+      } catch (fallbackError) {
+        logger.warn("Both async and sync repository context gathering failed", { 
+          asyncError: String(error),
+          syncError: String(fallbackError)
+        });
+        // Continue without context - the API can still work
+      }
     }
     
     // Generate code changes using OpenAI API
@@ -231,13 +239,13 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
 }
 
 /**
- * Evaluate the quality of the response and optimize it.
- * Simplified version without risky regex operations, but with hooks for future optimizations.
+ * Enhanced evaluation and optimization of AI responses.
+ * Includes code block validation and safe formatting improvements.
  * @param reply - The reply from OpenAI API.
  * @param repoPath - Path to the repository for context.
- * @returns Optimized reply.
+ * @returns Optimized and validated reply.
  */
-function evaluateAndOptimize(reply: string, _repoPath: string): string {
+function evaluateAndOptimize(reply: string, repoPath: string): string {
   // Basic validation and cleanup without complex regex manipulation
   if (!reply || typeof reply !== 'string') {
     return '';
@@ -267,8 +275,11 @@ function evaluateAndOptimize(reply: string, _repoPath: string): string {
     optimizedReply = optimizedReply.slice(0, 50000) + '\n\n...(truncated due to length)';
   }
   
+  // Enhanced validation for code blocks
+  optimizedReply = validateAndOptimizeCodeBlocks(optimizedReply, repoPath);
+  
   // Hook for future safe optimizations
-  optimizedReply = applyFutureOptimizations(optimizedReply, _repoPath);
+  optimizedReply = applyFutureOptimizations(optimizedReply, repoPath);
   
   logger.log("Response optimized", {
     originalLength: reply.length,
@@ -276,6 +287,149 @@ function evaluateAndOptimize(reply: string, _repoPath: string): string {
   });
   
   return optimizedReply;
+}
+
+/**
+ * Validate and optimize code blocks within AI responses.
+ * @param reply - The AI response containing potential code blocks.
+ * @param repoPath - Repository path for context validation.
+ * @returns Optimized reply with validated code blocks.
+ */
+function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string {
+  try {
+    // Find and validate search-replace blocks
+    const searchReplaceRegex = /```search-replace\n([\s\S]*?)```/g;
+    let optimizedReply = reply;
+    let match;
+    let offset = 0;
+
+    // Reset regex state
+    searchReplaceRegex.lastIndex = 0;
+
+    while ((match = searchReplaceRegex.exec(reply)) !== null) {
+      const fullBlock = match[0];
+      const blockContent = match[1];
+      
+      // Validate the search-replace block structure
+      const validation = validateSearchReplaceBlockStructure(blockContent, repoPath);
+      
+      if (!validation.isValid) {
+        logger.warn("Invalid search-replace block found", {
+          errors: validation.errors,
+          blockPreview: blockContent.substring(0, 100)
+        });
+        
+        // Replace invalid block with a comment explaining the issue
+        const errorComment = `<!-- Invalid search-replace block: ${validation.errors.join(', ')} -->`;
+        optimizedReply = optimizedReply.substring(0, match.index + offset) +
+                        errorComment +
+                        optimizedReply.substring(match.index + offset + fullBlock.length);
+        offset += errorComment.length - fullBlock.length;
+      } else if (validation.warnings.length > 0) {
+        logger.warn("Search-replace block has warnings", {
+          warnings: validation.warnings,
+          blockPreview: blockContent.substring(0, 100)
+        });
+      }
+      
+      // Reset regex lastIndex due to string modification
+      if (offset !== 0) {
+        searchReplaceRegex.lastIndex = 0;
+        break; // Restart the search to avoid index issues
+      }
+    }
+    
+    return optimizedReply;
+  } catch (error) {
+    logger.error("Error validating code blocks", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return reply; // Return original on error
+  }
+}
+
+/**
+ * Validate the structure of a search-replace block.
+ * @param blockContent - Content of the search-replace block.
+ * @param repoPath - Repository path for file existence validation.
+ * @returns Validation result with errors and warnings.
+ */
+function validateSearchReplaceBlockStructure(
+  blockContent: string, 
+  repoPath: string
+): { isValid: boolean; errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  try {
+    // Check for FILE declaration
+    const fileMatch = blockContent.match(/FILE:\s*(.*)/);
+    if (!fileMatch) {
+      errors.push("Missing FILE declaration");
+      return { isValid: false, errors, warnings };
+    }
+
+    const filePath = fileMatch[1].trim();
+    if (!filePath) {
+      errors.push("Empty file path");
+      return { isValid: false, errors, warnings };
+    }
+
+    // Validate file path safety
+    if (filePath.includes('..')) {
+      errors.push("File path contains directory traversal");
+    }
+
+    // Check if file exists (warning, not error)
+    const fs = require('fs');
+    const path = require('path');
+    const fullPath = path.join(repoPath, filePath);
+    if (!fs.existsSync(fullPath)) {
+      warnings.push(`File does not exist: ${filePath}`);
+    }
+
+    // Check for SEARCH/REPLACE pairs
+    const searchReplaceRegex = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+    const operations = [];
+    let operationMatch;
+
+    while ((operationMatch = searchReplaceRegex.exec(blockContent)) !== null) {
+      operations.push({
+        search: operationMatch[1],
+        replace: operationMatch[2]
+      });
+    }
+
+    if (operations.length === 0) {
+      errors.push("No valid SEARCH/REPLACE operations found");
+    }
+
+    // Validate individual operations
+    for (let i = 0; i < operations.length; i++) {
+      const op = operations[i];
+      
+      if (!op.search.trim()) {
+        errors.push(`Empty search text in operation ${i + 1}`);
+      }
+      
+      if (op.search.length > 5000) {
+        warnings.push(`Search text is very long in operation ${i + 1} (${op.search.length} chars)`);
+      }
+      
+      if (op.replace.length > 10000) {
+        warnings.push(`Replace text is very long in operation ${i + 1} (${op.replace.length} chars)`);
+      }
+    }
+
+  } catch (error) {
+    errors.push(`Validation error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings
+  };
 }
 
 /**
