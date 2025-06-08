@@ -5,7 +5,7 @@ import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
 import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser } from "./git-utils";
-import { generateCommitMessage, runSelfAskFlow } from "./openai-operations";
+import { generateCommitMessage } from "./openai-operations";
 import { processSearchReplaceBlocks } from "./file-operations";
 
 /**
@@ -61,13 +61,13 @@ export async function codexRepository(
     // Set Git identity using safe utilities
     setGitUser(tempDir, "bot@larp.dev", "larp0");
 
-    // Self-ask flow: repeatedly call OpenAI API until no new reply is generated.
-    const responses = await runSelfAskFlow(prompt);
+    // Use Codex CLI to process the repository instead of self-ask flow
+    const responses = await runCodexCLI(prompt, tempDir);
     
     if (responses.length === 0) {
-      logger.log("No responses generated from self-ask flow");
+      logger.log("No responses generated from Codex CLI");
     } else {
-      logger.log("Self-ask flow completed", { responsesCount: responses.length });
+      logger.log("Codex CLI processing completed", { responsesCount: responses.length });
       
       // Process search/replace operations from all responses
       for (let i = 0; i < responses.length; i++) {
@@ -128,6 +128,59 @@ export async function codexRepository(
     }
     logger.error("codexRepository failed", { error: msg, repoUrl, branchName });
     throw new Error(`Error processing repository ${repoUrl}: ${msg}. Please check repository settings and try again.`);
+  }
+}
+
+/**
+ * Run the Codex CLI to process the repository.
+ * Uses the @openai/codex package CLI instead of direct API calls.
+ * @param prompt - The initial prompt for Codex.
+ * @param repoPath - Path to the repository directory.
+ * @returns Array of responses from Codex CLI.
+ */
+async function runCodexCLI(prompt: string, repoPath: string): Promise<string[]> {
+  try {
+    logger.log("Running Codex CLI", { promptLength: prompt.length, repoPath });
+    
+    // Prepare the enhanced prompt with instructions for search/replace blocks
+    const enhancedPrompt = prompt + "\n\nWhen modifying files, use SEARCH/REPLACE blocks following this exact format:\n\n```search-replace\nFILE: path/to/file.ext\n<<<<<<< SEARCH\nexact content to find\n=======\nnew content to replace with\n>>>>>>> REPLACE\n```";
+    
+    // Use shell escaping for the prompt to handle quotes and special characters
+    const escapedPrompt = enhancedPrompt.replace(/'/g, "'\\''");
+    
+    // Run the Codex CLI with full-auto mode for non-interactive execution
+    const command = `npx @openai/codex exec --full-auto --skip-git-repo-check '${escapedPrompt}'`;
+    
+    const output = execSync(command, {
+      cwd: repoPath,
+      encoding: "utf-8",
+      env: { 
+        ...process.env,
+        // Ensure OPENAI_API_KEY is available for the CLI
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY
+      }
+    });
+    
+    logger.log("Codex CLI execution completed", { 
+      outputLength: output.length,
+      outputPreview: output.substring(0, 200)
+    });
+    
+    // Return the output as a single response
+    // The CLI handles the complete processing internally
+    return output.trim() ? [output.trim()] : [];
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("Codex CLI execution failed", { 
+      error: errorMessage,
+      promptLength: prompt.length
+    });
+    
+    // If Codex CLI fails, return empty array to allow the workflow to continue
+    // This prevents the entire process from failing due to CLI issues
+    logger.warn("Continuing without Codex CLI response due to error");
+    return [];
   }
 }
 
