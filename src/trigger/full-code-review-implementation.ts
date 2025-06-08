@@ -2,6 +2,7 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
+import { COPILOT_USERNAME } from "./workflow-constants";
 
 // Export the full code review implementation
 export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
@@ -11,8 +12,32 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   // Create authenticated Octokit
   const octokit = await createAuthenticatedOctokit(installationId);
 
-  // Fetch PR details to get base and head SHAs
-  const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number: issueNumber });
+  // Determine if this is a PR or Issue context by attempting to fetch PR details
+  let isPullRequest = false;
+  let pr: any = null;
+  
+  try {
+    const prResponse = await octokit.pulls.get({ owner, repo, pull_number: issueNumber });
+    pr = prResponse.data;
+    isPullRequest = true;
+    logger.log("Context identified as Pull Request", { prNumber: issueNumber });
+  } catch (error) {
+    logger.log("Context identified as Issue (not PR)", { issueNumber });
+    isPullRequest = false;
+  }
+
+  if (isPullRequest && pr) {
+    // Execute existing PR workflow
+    return await runPRCodeReview(octokit, payload, pr);
+  } else {
+    // Execute new Issue workflow
+    return await runIssueCodeReview(octokit, payload);
+  }
+}
+
+// Existing PR workflow extracted to separate function
+async function runPRCodeReview(octokit: Octokit, payload: GitHubContext, pr: any) {
+  const { owner, repo, issueNumber } = payload;
   const baseSha = pr.base.sha;
   const headSha = pr.head.sha;
 
@@ -229,6 +254,400 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
   });
 
   return { success: true };
+}
+
+// New Issue workflow implementation
+async function runIssueCodeReview(octokit: Octokit, payload: GitHubContext) {
+  const { owner, repo, issueNumber } = payload;
+  
+  try {
+    // 1. Fetch the issue details to get the original intention
+    const { data: issue } = await octokit.issues.get({
+      owner,
+      repo,
+      issue_number: issueNumber,
+    });
+
+    logger.log("Fetched issue details", { 
+      issueTitle: issue.title,
+      issueBodyLength: issue.body?.length || 0 
+    });
+
+    // 2. Enhance and elaborate the user issue intention
+    const enhancedIntention = await enhanceIssueIntention(issue.title, issue.body || "", owner, repo);
+    
+    // 3. Perform full project code review with focus on the intention
+    const projectReview = await performFullProjectReview(octokit, owner, repo, enhancedIntention);
+    
+    // 4. Construct the final comment with enhanced intention and review
+    const finalComment = `# 🔍 Full Code Review - Issue Analysis
+
+## Enhanced Issue Intention
+
+${enhancedIntention}
+
+## Full Project Code Review
+
+${projectReview}
+
+---
+
+@${COPILOT_USERNAME}`;
+
+    // 5. Post the comment
+    await octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      body: finalComment
+    });
+
+    // 6. Assign the issue to copilot
+    await assignIssueToCopilot(octokit, owner, repo, issue);
+
+    logger.log("Successfully completed issue code review workflow", { issueNumber });
+    
+    return { 
+      success: true, 
+      type: "issue_review",
+      enhancedIntention: enhancedIntention.length,
+      projectReview: projectReview.length
+    };
+
+  } catch (error) {
+    logger.error("Error in issue code review workflow", { 
+      error: error instanceof Error ? error.message : String(error),
+      issueNumber 
+    });
+    
+    // Post error comment
+    await octokit.issues.createComment({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      body: `🛑 Error performing full code review analysis. Please try again later.\n\nError: ${error instanceof Error ? error.message : "Unknown error"}`
+    });
+    
+    throw error;
+  }
+}
+
+// Helper function to enhance issue intention using OpenAI
+async function enhanceIssueIntention(issueTitle: string, issueBody: string, owner: string, repo: string): Promise<string> {
+  const systemPrompt = `You are an expert technical analyst. Your task is to enhance and elaborate on the user's issue intention, making it detailed, well-structured, and actionable.
+
+Transform the basic issue into a comprehensive description that includes:
+1. **Clear Problem Statement** - What exactly needs to be addressed
+2. **Technical Context** - How this relates to the codebase
+3. **Implementation Approach** - High-level steps to accomplish the goal
+4. **Technical Specifications** - Detailed requirements and constraints
+5. **Success Criteria** - How to know when this is complete
+6. **Potential Challenges** - Known risks or complex areas
+7. **Resources & References** - Helpful documentation or examples
+
+Format using proper Markdown with clear sections and actionable details. Make it detailed enough for any competent developer to understand the full scope and requirements.`;
+
+  const userPrompt = `Enhance this GitHub issue intention for better implementation guidance:
+
+**Repository:** ${owner}/${repo}
+**Issue Title:** ${issueTitle}
+**Issue Body:** 
+${issueBody || 'No additional description provided'}
+
+Please elaborate on the user's intention and provide comprehensive implementation guidance.`;
+
+  try {
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      throw new Error("OpenAI API key not configured");
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4.1-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          max_tokens: 3000,
+          temperature: 0.7
+        }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const enhancedContent = data.choices?.[0]?.message?.content;
+
+      if (!enhancedContent) {
+        throw new Error("No content received from OpenAI");
+      }
+
+      logger.log("Successfully enhanced issue intention", { 
+        originalLength: issueBody.length,
+        enhancedLength: enhancedContent.length
+      });
+
+      return enhancedContent;
+      
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+  } catch (error) {
+    logger.error("Failed to enhance issue intention", { 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    
+    // Return fallback enhanced description
+    return `## Enhanced Issue Analysis
+
+**Original Request:** ${issueTitle}
+
+**Description:** ${issueBody || 'No additional description provided'}
+
+**Technical Context:** This issue requires analysis of the entire codebase to understand the implementation approach and provide guidance for the requested changes.
+
+**Next Steps:** 
+1. Review the full project structure and architecture
+2. Identify relevant code areas that need modification
+3. Provide detailed implementation steps
+4. Consider potential impacts and dependencies`;
+  }
+}
+
+// Helper function to perform full project code review
+async function performFullProjectReview(octokit: Octokit, owner: string, repo: string, focusIntention: string): Promise<string> {
+  try {
+    // Get repository structure and key files
+    const repoStructure = await getRepositoryStructure(octokit, owner, repo);
+    const keyFiles = await getKeyProjectFiles(octokit, owner, repo);
+    
+    // Perform AI analysis of the full project with focus on the intention
+    const systemPrompt = `You are THE BEST code architect and full-stack reviewer AKA LARP-PROJECT-ANALYZER-3000.
+
+Your task is to perform a comprehensive code review of the entire project with specific focus on the user's intention.
+
+Provide analysis in the following structure:
+1. **Project Architecture Overview** - High-level understanding of the codebase
+2. **Intention Analysis** - How the user's request fits into the current architecture
+3. **Implementation Steps** - Detailed steps needed to accomplish the user's request
+4. **Code Areas to Modify** - Specific files and functions that need changes
+5. **Potential Impact Analysis** - What other parts of the system might be affected
+6. **Technical Recommendations** - Best practices and architectural suggestions
+7. **Mermaid Diagram** - Visual representation of the implementation approach
+
+For the mermaid diagram, use proper syntax:
+- Start with \`\`\`mermaid
+- Use flowchart TD or LR
+- Quote all labels with spaces
+- Remove special symbols from labels
+- End with \`\`\`
+
+BE CREATIVE, THOROUGH, and INSPIRING. Provide actionable guidance that any developer can follow.`;
+
+    const userPrompt = `Analyze this project and provide implementation guidance:
+
+**Repository:** ${owner}/${repo}
+
+**Focus Intention:**
+${focusIntention}
+
+**Repository Structure:**
+${repoStructure}
+
+**Key Files Analysis:**
+${keyFiles}
+
+Please provide comprehensive analysis and implementation steps focused on accomplishing the user's intention.`;
+
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      throw new Error("OpenAI API key not configured");
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 1 minute timeout
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${openaiApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4.1-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          max_tokens: 4000,
+          temperature: 0.7
+        }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const reviewContent = data.choices?.[0]?.message?.content;
+
+      if (!reviewContent) {
+        throw new Error("No content received from OpenAI");
+      }
+
+      logger.log("Successfully generated project review", { 
+        reviewLength: reviewContent.length
+      });
+
+      return reviewContent;
+      
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+  } catch (error) {
+    logger.error("Failed to perform full project review", { 
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    
+    // Return fallback review
+    return `## Project Analysis
+
+**Architecture Overview:** This appears to be a comprehensive software project that requires detailed analysis to understand the full implementation approach.
+
+**Implementation Guidance:** 
+1. Analyze the existing codebase structure and patterns
+2. Identify the best integration points for the requested changes
+3. Plan the implementation approach step by step
+4. Consider testing and documentation requirements
+5. Ensure compatibility with existing systems
+
+**Recommendations:**
+- Follow established patterns in the codebase
+- Implement incremental changes with proper testing
+- Document any new functionality
+- Consider backward compatibility
+
+**Note:** For more detailed analysis, please ensure the repository structure is accessible and try the review again.`;
+  }
+}
+
+// Helper function to get repository structure
+async function getRepositoryStructure(octokit: Octokit, owner: string, repo: string): Promise<string> {
+  try {
+    const { data: contents } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path: "",
+    });
+
+    if (Array.isArray(contents)) {
+      const structure = contents
+        .slice(0, 20) // Limit to first 20 items
+        .map(item => `- ${item.name} (${item.type})`)
+        .join('\n');
+      
+      return `Repository root structure:\n${structure}`;
+    }
+    
+    return "Repository structure could not be determined";
+  } catch (error) {
+    logger.warn("Failed to get repository structure", { error: error instanceof Error ? error.message : String(error) });
+    return "Repository structure not accessible";
+  }
+}
+
+// Helper function to get key project files
+async function getKeyProjectFiles(octokit: Octokit, owner: string, repo: string): Promise<string> {
+  const keyFiles = ['package.json', 'README.md', 'tsconfig.json', 'src/index.ts', 'src/app.ts'];
+  const fileContents: string[] = [];
+
+  for (const filePath of keyFiles) {
+    try {
+      const { data: fileData } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: filePath,
+      });
+
+      if ('content' in fileData && fileData.content) {
+        const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
+        const truncatedContent = content.length > 1000 ? content.substring(0, 1000) + '...' : content;
+        fileContents.push(`### ${filePath}\n\`\`\`\n${truncatedContent}\n\`\`\``);
+      }
+    } catch (error) {
+      // File doesn't exist, skip silently
+      continue;
+    }
+  }
+
+  return fileContents.length > 0 
+    ? fileContents.join('\n\n')
+    : "No key project files could be analyzed";
+}
+
+// Helper function to assign issue to copilot
+async function assignIssueToCopilot(octokit: Octokit, owner: string, repo: string, issue: any): Promise<void> {
+  try {
+    // Try to assign the issue to the copilot user
+    let assignmentSuccess = false;
+    const copilotUser = COPILOT_USERNAME.replace('@', ''); // Remove @ symbol for API call
+    
+    try {
+      await octokit.issues.update({
+        owner,
+        repo,
+        issue_number: issue.number,
+        assignees: [copilotUser]
+      });
+      assignmentSuccess = true;
+      logger.info(`Successfully assigned issue to '${copilotUser}' user`, { 
+        issueNumber: issue.number
+      });
+    } catch (assignError) {
+      logger.warn(`Could not assign to '${copilotUser}' user, assignment handled via mention in comment`, { 
+        error: assignError instanceof Error ? assignError.message : 'Unknown error',
+        issueNumber: issue.number
+      });
+    }
+    
+    // Add a label to indicate full review completion
+    await octokit.issues.addLabels({
+      owner,
+      repo,
+      issue_number: issue.number,
+      labels: ['full-code-review-complete']
+    });
+    
+    logger.info("Completed copilot assignment process", { 
+      issueNumber: issue.number,
+      issueTitle: issue.title,
+      directAssignment: assignmentSuccess
+    });
+    
+  } catch (error) {
+    logger.error("Error in copilot assignment", { 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      issueNumber: issue.number
+    });
+    // Don't throw error to avoid failing the whole workflow
+  }
 }
 
 // Helper to create authenticated Octokit instance
