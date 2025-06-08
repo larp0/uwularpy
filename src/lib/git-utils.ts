@@ -158,3 +158,73 @@ export function setGitUser(repoPath: string, email: string, name: string): void 
     throw new Error(`Failed to set git user: ${error}`);
   }
 }
+
+/**
+ * Get a basic repository structure for context in code generation.
+ * Returns a summary of the repository layout and important files.
+ */
+export function getRepositoryStructure(repoPath: string): string {
+  const logger = loggers.git.child({ operation: 'repo-structure' });
+  
+  try {
+    // Get list of files in the repository
+    const lsFiles = safeGitCommand(['ls-files'], { cwd: repoPath });
+    const files = lsFiles.split('\n').filter(file => file.trim().length > 0);
+    
+    // Categorize files by type
+    const categories = {
+      config: files.filter(f => f.match(/\.(json|yaml|yml|toml|ini|env|config)$/i) || 
+                              f.match(/^(package\.json|tsconfig\.json|\.env|\.gitignore|README|Dockerfile|Makefile)$/i)),
+      source: files.filter(f => f.match(/\.(ts|js|jsx|tsx|py|java|cpp|c|cs|go|rs|php|rb)$/i)),
+      tests: files.filter(f => f.match(/\.(test|spec)\./i) || f.includes('test') || f.includes('spec')),
+      docs: files.filter(f => f.match(/\.(md|txt|rst|doc)$/i)),
+      other: files.filter(f => !f.match(/\.(ts|js|jsx|tsx|py|java|cpp|c|cs|go|rs|php|rb|json|yaml|yml|toml|ini|env|config|test|spec|md|txt|rst|doc)$/i))
+    };
+    
+    // Build context string
+    let context = `# Repository Structure\n\n`;
+    context += `Total files: ${files.length}\n\n`;
+    
+    if (categories.config.length > 0) {
+      context += `## Configuration Files (${categories.config.length})\n`;
+      context += categories.config.slice(0, 10).map(f => `- ${f}`).join('\n') + '\n\n';
+    }
+    
+    if (categories.source.length > 0) {
+      context += `## Source Files (${categories.source.length})\n`;
+      context += categories.source.slice(0, 20).map(f => `- ${f}`).join('\n') + '\n\n';
+    }
+    
+    if (categories.tests.length > 0) {
+      context += `## Test Files (${categories.tests.length})\n`;
+      context += categories.tests.slice(0, 10).map(f => `- ${f}`).join('\n') + '\n\n';
+    }
+    
+    // Try to read key files for more context
+    const keyFiles = ['package.json', 'README.md', 'tsconfig.json'];
+    for (const keyFile of keyFiles) {
+      if (files.includes(keyFile)) {
+        try {
+          const content = require('fs').readFileSync(require('path').join(repoPath, keyFile), 'utf8');
+          context += `## ${keyFile}\n\`\`\`\n${content.slice(0, 1000)}\n\`\`\`\n\n`;
+        } catch (error) {
+          // Ignore file reading errors
+        }
+      }
+    }
+    
+    logger.debug('repo-structure-generated', 'Repository structure generated', { 
+      fileCount: files.length,
+      contextLength: context.length,
+      repoPath 
+    });
+    
+    return context;
+  } catch (error) {
+    logger.warn('repo-structure-failed', 'Failed to get repository structure', { 
+      error: String(error), 
+      repoPath 
+    });
+    return `# Repository Structure\n\nUnable to read repository structure: ${error}`;
+  }
+}

@@ -14,15 +14,21 @@ export interface OpenAIConfig {
 }
 
 export const DEFAULT_CONFIG: OpenAIConfig = {
-  model: "gpt-4.1-mini",
+  model: "gpt-4",
   maxTokens: 30000,
   temperature: 0.3
 };
 
 export const COMMIT_MESSAGE_CONFIG: OpenAIConfig = {
-  model: "gpt-4.1-nano", 
+  model: "gpt-4", 
   maxTokens: 420,
   temperature: 0.3
+};
+
+export const CODEX_CONFIG: OpenAIConfig = {
+  model: "gpt-4",
+  maxTokens: 16000,
+  temperature: 0.1  // Lower temperature for more deterministic code generation
 };
 
 /**
@@ -181,4 +187,66 @@ export async function runSelfAskFlow(
   }
   
   return responses;
+}
+
+/**
+ * Generate code changes using OpenAI API for development tasks.
+ * This replaces the deprecated Codex CLI functionality.
+ */
+export async function generateCodeChanges(
+  prompt: string,
+  repositoryContext?: string,
+  config: OpenAIConfig = CODEX_CONFIG
+): Promise<string> {
+  try {
+    logger.log("Generating code changes with OpenAI API", { 
+      promptLength: prompt.length,
+      contextLength: repositoryContext?.length || 0,
+      model: config.model
+    });
+
+    const systemMessage = `You are an expert software developer and code assistant. Your task is to analyze the provided code repository context and user request, then generate precise code changes to accomplish the requested goal.
+
+IMPORTANT INSTRUCTIONS:
+1. Always use SEARCH/REPLACE blocks when modifying files
+2. Follow this exact format for file modifications:
+
+\`\`\`search-replace
+FILE: path/to/file.ext
+<<<<<<< SEARCH
+exact content to find (must match exactly)
+=======
+new content to replace with
+>>>>>>> REPLACE
+\`\`\`
+
+3. Provide clear explanations for each change
+4. Focus on minimal, surgical changes rather than large rewrites
+5. Ensure all changes are functional and follow best practices
+6. Test-driven approach when applicable
+
+For each request:
+- Analyze the current codebase structure
+- Identify the specific files that need changes
+- Generate precise search/replace blocks
+- Explain the reasoning behind each change
+- Consider edge cases and error handling`;
+
+    const enhancedPrompt = repositoryContext 
+      ? `REPOSITORY CONTEXT:\n${repositoryContext}\n\nUSER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`
+      : `USER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`;
+
+    const response = await generateAIResponse(enhancedPrompt, systemMessage, config);
+    
+    logger.log("Code generation completed", { 
+      responseLength: response.length,
+      model: config.model
+    });
+
+    return response;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("Code generation failed", { error: errorMessage });
+    throw new Error(`Failed to generate code changes: ${errorMessage}`);
+  }
 }
