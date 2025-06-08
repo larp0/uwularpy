@@ -136,6 +136,7 @@ export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
     Mermaid diagram must by styled accordingly to the mood of tech review, closer to enterprise quality code => memaid style cloer to corporate bank win95 theme
     if its yolo bad quality code => cyberpunk vibes with funky fonts
     BE CREATIVE, HUMBLE AND KIND, YET WITH SOME MEMECOIN HUMOUR, YOUR CREATIVITY MUST INSPIRE PEOPLE SO DO YOU BEST TRY EVER EVERY TIME LIKE THERE IS NO TOMORROW
+    If there is something to do for realz then tag "@copilot" so it would do it once you post
     `
   const userMsg = `DIFF:\n${diff}\n\nORIGINAL FILES:\n${JSON.stringify(originalFiles)}`;
   const requestBody = {
