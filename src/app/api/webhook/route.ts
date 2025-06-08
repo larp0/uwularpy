@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
         try {
           // Prepare the context for the task
-          const context: GitHubContext = {
+          let context: GitHubContext = {
             owner,
             repo,
             issueNumber,
@@ -83,6 +83,21 @@ export async function POST(request: NextRequest) {
             requestId: generateRequestId(),
             message: parsedCommand.fullText,
           };
+
+          // Handle multi-repository commands
+          if (parsedCommand.isMultiRepoCommand && parsedCommand.repositories) {
+            // Fill in missing owners with current repository owner
+            const repositories = parsedCommand.repositories.map(repoSpec => ({
+              owner: repoSpec.owner || owner, // Use current owner if not specified
+              repo: repoSpec.repo
+            }));
+
+            context = {
+              ...context,
+              isMultiRepo: true,
+              repositories
+            };
+          }
 
           // Determine which task to trigger (now uses AI)
           const taskType = await getTaskType(parsedCommand);

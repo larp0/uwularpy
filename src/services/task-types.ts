@@ -12,6 +12,9 @@ export interface GitHubContext {
   requestTimestamp?: string;
   requestId?: string;
   message?: string;
+  // Multi-repository support
+  repositories?: Array<{ owner: string; repo: string }>;
+  isMultiRepo?: boolean;
 }
 
 /**

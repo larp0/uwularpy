@@ -8,6 +8,58 @@ export interface ParsedCommand {
   aiIntent?: string; // AI-classified intent
   aiConfidence?: number; // AI confidence score
   isDevCommand?: boolean; // True if this is a "@l dev " command
+  isMultiRepoCommand?: boolean; // True if this is a multi-repository command
+  repositories?: Array<{ owner: string; repo: string }>; // Parsed repository list
+}
+
+/**
+ * Parses a repository list string into an array of owner/repo objects
+ * Supports formats like: "owner1/repo1,owner2/repo2" or "repo1,repo2" (using current owner)
+ * @param repoString The string containing repository specifications
+ * @returns Array of repository objects
+ */
+function parseRepositoryList(repoString: string): Array<{ owner: string; repo: string }> {
+  const repositories: Array<{ owner: string; repo: string }> = [];
+  
+  if (!repoString || typeof repoString !== 'string') {
+    return repositories;
+  }
+
+  // Split by comma and clean up each repo specification
+  const repoSpecs = repoString.split(',').map(spec => spec.trim()).filter(spec => spec.length > 0);
+  
+  for (const spec of repoSpecs) {
+    if (spec.includes('/')) {
+      // Format: owner/repo
+      const [owner, repo] = spec.split('/').map(part => part.trim());
+      if (owner && repo && isValidGitHubName(owner) && isValidGitHubName(repo)) {
+        repositories.push({ owner, repo });
+      }
+    } else {
+      // Format: repo (we'll need to use the current repository's owner)
+      if (isValidGitHubName(spec)) {
+        // We'll fill in the owner later from the webhook context
+        repositories.push({ owner: '', repo: spec });
+      }
+    }
+  }
+  
+  return repositories;
+}
+
+/**
+ * Validates GitHub repository/owner names
+ * @param name The name to validate
+ * @returns true if valid GitHub name
+ */
+function isValidGitHubName(name: string): boolean {
+  // GitHub names can contain alphanumeric characters, hyphens, underscores, and dots
+  // Must not start or end with hyphen, must be 1-39 characters
+  // Must not contain consecutive dots
+  return /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$/.test(name) && 
+         name.length <= 39 && 
+         name.length >= 1 &&
+         !name.includes('..');
 }
 
 /**
@@ -139,12 +191,29 @@ export function parseCommand(comment: string): ParsedCommand {
   // Check if this is a "@l dev " command specifically
   const isDevCommand = textAfterMention.toLowerCase().startsWith('dev ');
 
+  // Check if this is a multi-repository command
+  const isMultiRepoCommand = textAfterMention.toLowerCase().startsWith('multi-plan ') || 
+                           textAfterMention.toLowerCase().startsWith('multi-repo ') ||
+                           textAfterMention.toLowerCase().startsWith('aggregate ');
+
+  // Parse repositories for multi-repo commands
+  let repositories: Array<{ owner: string; repo: string }> = [];
+  if (isMultiRepoCommand) {
+    const repoMatch = textAfterMention.match(/^(?:multi-plan|multi-repo|aggregate)\s+(.+)$/i);
+    if (repoMatch) {
+      const repoString = repoMatch[1].trim();
+      repositories = parseRepositoryList(repoString);
+    }
+  }
+
   return {
     command: textAfterMention.trim().toLowerCase(),
     fullText: textAfterMention,
     isMention: true,
     userQuery,
-    isDevCommand
+    isDevCommand,
+    isMultiRepoCommand,
+    repositories
   };
 }
 
@@ -182,6 +251,15 @@ export async function getTaskType(
       normalizedCommand.startsWith('plan ') || normalizedCommand.startsWith('planning ') || normalizedCommand.startsWith('analyze ')) {
     console.log('[getTaskType] Direct match for plan command:', normalizedCommand);
     return 'plan-task';
+  }
+
+  // Check for multi-repository planning commands
+  if (parsedCommand.isMultiRepoCommand || 
+      normalizedCommand.startsWith('multi-plan') || 
+      normalizedCommand.startsWith('multi-repo') ||
+      normalizedCommand.startsWith('aggregate')) {
+    console.log('[getTaskType] Direct match for multi-repo plan command:', normalizedCommand);
+    return 'multi-plan-task';
   }
   
   if (normalizedCommand === 'review' || normalizedCommand === 'r') {

@@ -170,7 +170,7 @@ export const ISSUE_PRIORITIES = {
 } as const;
 
 // Define interfaces for the plan structure
-interface PlanAnalysis {
+export interface PlanAnalysis {
   missingComponents: string[];
   criticalFixes: string[];
   requiredImprovements: string[];
@@ -284,7 +284,7 @@ async function postReplyComment(octokit: Octokit, owner: string, repo: string, i
 }
 
 // Phase 1: Repository Ingestion with improved performance and error handling
-async function ingestRepository(octokit: Octokit, owner: string, repo: string): Promise<string> {
+export async function ingestRepository(octokit: Octokit, owner: string, repo: string): Promise<string> {
   logger.info("Ingesting repository contents");
   
   const config = getPlanConfig();
@@ -609,7 +609,7 @@ Be UNHINGED in creativity - think bigger, bolder, more disruptive than normal AI
 }
 
 // Phase 2: Comprehensive Analysis using LLM with enhanced security and reliability
-async function performComprehensiveAnalysis(repositoryContent: string, userQuery?: string, requester?: string): Promise<PlanAnalysis> {
+export async function performComprehensiveAnalysis(repositoryContent: string, userQuery?: string, requester?: string): Promise<PlanAnalysis> {
   logger.info("Starting LLM-powered comprehensive analysis", { requester });
   
   const config = getPlanConfig();
