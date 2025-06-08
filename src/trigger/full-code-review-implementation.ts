@@ -439,6 +439,7 @@ async function performFullProjectReview(octokit: Octokit, owner: string, repo: s
     const systemPrompt = `You are THE BEST code architect and full-stack reviewer AKA LARP-PROJECT-ANALYZER-3000.
 
 Your task is to perform a comprehensive code review of the entire project with specific focus on the user's intention.
+Roast devs a bit tho, be creative. 
 
 Provide analysis in the following structure:
 1. **Project Architecture Overview** - High-level understanding of the codebase
@@ -494,8 +495,8 @@ Please provide comprehensive analysis and implementation steps focused on accomp
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
           ],
-          max_tokens: 4000,
-          temperature: 0.7
+          max_tokens: 32000,
+          temperature: 0.94
         }),
         signal: controller.signal
       });
