@@ -9,6 +9,18 @@ import { generateCommitMessage, generateCodeChanges } from "./openai-operations"
 import { processSearchReplaceBlocks } from "./file-operations";
 
 /**
+ * Result interface for code generation operations.
+ * Distinguishes between successful code changes and error responses.
+ */
+export interface CodeGenerationResult {
+  success: boolean;
+  responses: string[];
+  isErrorFallback: boolean;
+  errorMessage?: string;
+  changesApplied?: number;
+}
+
+/**
  * Clone a repository, run OpenAI API in a self-ask flow by repeatedly sending prompts,
  * commit & push changes.
  *
@@ -62,37 +74,30 @@ export async function codexRepository(
     setGitUser(tempDir, "bot@larp.dev", "larp0");
 
     // Use modern OpenAI API to process the repository
-    let responses: string[] = [];
+    let generationResult: CodeGenerationResult;
     try {
-      responses = await runModernCodeGeneration(prompt, tempDir);
+      generationResult = await runModernCodeGeneration(prompt, tempDir);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Code generation failed", { error: errorMessage });
       
-      // Create a helpful error response instead of failing completely
-      responses = [`# Code Generation Failed
-
-Sorry, I encountered an error while trying to generate code changes:
-
-**Error**: ${errorMessage}
-
-**Possible solutions**:
-1. Check if OPENAI_API_KEY is properly configured
-2. Verify the repository is accessible
-3. Try a simpler or more specific request
-4. Check your OpenAI API usage limits
-
-Please try again with a more specific request or check the configuration.`];
+      // Return error result with clear metadata
+      generationResult = {
+        success: false,
+        responses: [],
+        isErrorFallback: true,
+        errorMessage: `Code generation failed: ${errorMessage}`
+      };
     }
     
-    if (responses.length === 0) {
-      logger.log("No responses generated from code generation");
-    } else {
-      logger.log("Modern code generation completed", { responsesCount: responses.length });
+    let totalChangesApplied = 0;
+    
+    if (generationResult.success && generationResult.responses.length > 0) {
+      logger.log("Modern code generation completed", { responsesCount: generationResult.responses.length });
       
       // Process search/replace operations from all responses
-      for (let i = 0; i < responses.length; i++) {
-        const response = responses[i];
+      for (let i = 0; i < generationResult.responses.length; i++) {
+        const response = generationResult.responses[i];
         logger.log("Processing response", { index: i + 1, responseLength: response.length });
         
         // Run evaluator-optimizer on the reply
@@ -105,14 +110,27 @@ Please try again with a more specific request or check the configuration.`];
 
         // Process any search/replace blocks in the reply
         const searchReplaceChanges = processSearchReplaceBlocks(optimizedReply, tempDir);
+        const successfulChanges = searchReplaceChanges.filter(change => change.applied).length;
+        totalChangesApplied += successfulChanges;
+        
         if (searchReplaceChanges.length > 0) {
           logger.log("Applied search/replace operations", {
             iteration: i + 1,
             changesCount: searchReplaceChanges.length,
+            successfulChanges,
             changes: searchReplaceChanges
           });
         }
       }
+      
+      // Update the generation result with actual changes applied
+      generationResult.changesApplied = totalChangesApplied;
+    } else if (generationResult.isErrorFallback) {
+      logger.error("Code generation failed, no changes will be applied", { 
+        errorMessage: generationResult.errorMessage 
+      });
+    } else {
+      logger.log("No responses generated from code generation");
     }
 
     // Commit and push changes using safe git utilities
@@ -121,9 +139,16 @@ Please try again with a more specific request or check the configuration.`];
     // Check if there are any changes to commit
     const hasChanges = hasStageChanges(tempDir);
     
-    // Generate AI commit message
-    const diffContent = hasChanges ? getStagedDiff(tempDir) : '';
-    const commitMessage = await generateCommitMessage(diffContent);
+    // Generate AI commit message based on success/failure and actual changes
+    let commitMessage: string;
+    if (generationResult.isErrorFallback) {
+      commitMessage = `Code generation failed: ${generationResult.errorMessage?.split(':')[1]?.trim() || 'Unknown error'}`;
+    } else {
+      const diffContent = hasChanges ? getStagedDiff(tempDir) : '';
+      commitMessage = hasChanges 
+        ? await generateCommitMessage(diffContent)
+        : `OpenAI code generation completed (${totalChangesApplied} changes applied)`;
+    }
     
     // Use safe git commit that prevents shell injection
     await safeGitCommit(commitMessage, {
@@ -155,9 +180,9 @@ Please try again with a more specific request or check the configuration.`];
  * Run the modern OpenAI API to process the repository.
  * @param prompt - The initial prompt for code generation.
  * @param repoPath - Path to the repository directory.
- * @returns Array of responses from OpenAI API.
+ * @returns CodeGenerationResult with success status and metadata.
  */
-async function runModernCodeGeneration(prompt: string, repoPath: string): Promise<string[]> {
+async function runModernCodeGeneration(prompt: string, repoPath: string): Promise<CodeGenerationResult> {
   try {
     logger.log("Running modern code generation with OpenAI API", { promptLength: prompt.length, repoPath });
     
@@ -180,8 +205,13 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
       hasSearchReplace: response.includes('search-replace')
     });
     
-    // Return the response as a single entry
-    return response.trim() ? [response.trim()] : [];
+    // Return successful result with actual code changes
+    return {
+      success: true,
+      responses: response.trim() ? [response.trim()] : [],
+      isErrorFallback: false,
+      changesApplied: 0 // Will be updated later after processing search/replace blocks
+    };
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -190,14 +220,19 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
       promptLength: prompt.length
     });
     
-    // Re-throw the error to maintain consistent error handling
-    throw new Error(`Code generation failed: ${errorMessage}`);
+    // Return error result with metadata to differentiate from real code changes
+    return {
+      success: false,
+      responses: [],
+      isErrorFallback: true,
+      errorMessage: `Code generation failed: ${errorMessage}`
+    };
   }
 }
 
 /**
  * Evaluate the quality of the response and optimize it.
- * Simplified version without risky regex operations.
+ * Simplified version without risky regex operations, but with hooks for future optimizations.
  * @param reply - The reply from OpenAI API.
  * @param repoPath - Path to the repository for context.
  * @returns Optimized reply.
@@ -232,12 +267,47 @@ function evaluateAndOptimize(reply: string, _repoPath: string): string {
     optimizedReply = optimizedReply.slice(0, 50000) + '\n\n...(truncated due to length)';
   }
   
+  // Hook for future safe optimizations
+  optimizedReply = applyFutureOptimizations(optimizedReply, _repoPath);
+  
   logger.log("Response optimized", {
     originalLength: reply.length,
     optimizedLength: optimizedReply.length
   });
   
   return optimizedReply;
+}
+
+/**
+ * Hook for applying future safe optimizations to AI responses.
+ * This function is designed to be extended with additional safe optimization features.
+ * @param reply - The reply to optimize.
+ * @param repoPath - Path to the repository for context-aware optimizations.
+ * @returns The optimized reply.
+ */
+function applyFutureOptimizations(reply: string, _repoPath: string): string {
+  // Currently a pass-through, but provides a safe place to add:
+  // - AST-based code formatting
+  // - Context-aware search/replace block validation
+  // - Language-specific improvements
+  // - Safe pattern matching for common issues
+  
+  // Example: Remove obviously malformed search/replace blocks
+  // This is safer than complex regex operations
+  const lines = reply.split('\n');
+  const cleanedLines = lines.filter(line => {
+    // Remove lines that look like broken search/replace artifacts
+    // but only if they're clearly malformed (safe patterns only)
+    const suspiciousPatterns = [
+      /^={7,}$/, // Lines with only equals signs
+      /^<{7,}$/, // Lines with only less-than signs  
+      /^>{7,}$/, // Lines with only greater-than signs
+    ];
+    
+    return !suspiciousPatterns.some(pattern => pattern.test(line.trim()));
+  });
+  
+  return cleanedLines.join('\n');
 }
 
 /**

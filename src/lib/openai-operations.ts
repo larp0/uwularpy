@@ -32,15 +32,35 @@ export const CODEX_CONFIG: OpenAIConfig = {
 };
 
 /**
- * Initialize OpenAI client with error handling.
+ * Initialize OpenAI client with comprehensive error handling.
+ * Ensures OPENAI_API_KEY is always properly validated.
  */
 function createOpenAIClient(): OpenAI {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY environment variable is not set');
+  const apiKey = process.env.OPENAI_API_KEY;
+  
+  // Comprehensive validation of API key
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY environment variable is not set. Please configure your OpenAI API key.');
+  }
+  
+  if (typeof apiKey !== 'string') {
+    throw new Error('OPENAI_API_KEY must be a string value.');
+  }
+  
+  if (apiKey.trim().length === 0) {
+    throw new Error('OPENAI_API_KEY cannot be empty.');
+  }
+  
+  // Basic format validation (OpenAI keys typically start with 'sk-')
+  if (!apiKey.startsWith('sk-') && !apiKey.startsWith('sk-proj-')) {
+    logger.warn('API key format may be invalid', { 
+      keyPrefix: apiKey.substring(0, 6),
+      keyLength: apiKey.length 
+    });
   }
   
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: apiKey,
   });
 }
 
