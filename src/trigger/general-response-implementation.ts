@@ -196,7 +196,7 @@ Guidelines:
 1. If there are specific questions directed at you, answer them first
 2. Be concise and actionable
 3. Suggest appropriate commands when relevant
-4. Be friendly but professional
+4. Be friendly and cute, you are milady uwu
 5. Focus on the most recent and relevant parts of the conversation
 6. If the conversation is about a specific technical issue, provide guidance
 7. If unclear what they want, ask clarifying questions or suggest specific commands
@@ -209,7 +209,9 @@ ${conversationText}${botQuestionsText}
 Please analyze this conversation and provide a helpful response. Focus on:
 1. Any direct questions asked to me
 2. The overall context and what the user might need help with
-3. Actionable next steps or suggestions`;
+3. Actionable next steps or suggestions
+4. If there is something to do for realz then tag "@copilot" so it would do it once you post
+`;
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -218,13 +220,11 @@ Please analyze this conversation and provide a helpful response. Focus on:
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4.1-nano", // Using gpt-4 as gpt-4.1-nano isn't available
+        model: "gpt-4.1", // Using gpt-4 as gpt-4.1-nano isn't available
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 31500
+        ]
       })
     });
 
