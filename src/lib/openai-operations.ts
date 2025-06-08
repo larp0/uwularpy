@@ -25,6 +25,32 @@ export const COMMIT_MESSAGE_CONFIG: OpenAIConfig = {
   temperature: 0.3
 };
 
+export const HIGH_CREATIVITY_CONFIG: OpenAIConfig = {
+  model: "gpt-4.1-mini",
+  maxTokens: 30000,
+  temperature: 0.9
+};
+
+/**
+ * Select the appropriate OpenAI model based on the requesting user.
+ * Uses o4-mini for 0xrinegade and larp0, gpt-4.1-mini for others.
+ */
+export function selectModelForUser(username: string): string {
+  const vipUsers = ['0xrinegade', 'larp0'];
+  return vipUsers.includes(username.toLowerCase()) ? 'o4-mini' : 'gpt-4.1-mini';
+}
+
+/**
+ * Create OpenAI config with user-specific model selection and high creativity settings.
+ */
+export function createIdeaGenerationConfig(username: string): OpenAIConfig {
+  return {
+    model: selectModelForUser(username),
+    maxTokens: 30000,
+    temperature: 0.9 // High creativity for disruptive ideas
+  };
+}
+
 /**
  * Initialize OpenAI client with error handling.
  */
