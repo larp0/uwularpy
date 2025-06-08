@@ -32,37 +32,69 @@ describe('Code Generation with OpenAI API', () => {
     // Mock OPENAI_API_KEY for testing
     process.env.OPENAI_API_KEY = 'sk-test-key-mock';
     
-    // Explicitly reset all mocks to prevent state bleed between tests
+    // Comprehensive mock reset to prevent state bleed between tests
     jest.clearAllMocks();
     jest.resetAllMocks();
-    jest.resetModules();
+    jest.restoreAllMocks();
     
-    // Clear OpenAI constructor and instance mocks
+    // Explicitly reset OpenAI constructor and all its instances
     OpenAI.mockClear();
     OpenAI.mockReset();
+    if (OpenAI.mockRestore) {
+      OpenAI.mockRestore();
+    }
     
-    // Get the mock create function and reset it
+    // Set up fresh mock implementation
+    OpenAI.mockImplementation(() => ({
+      chat: {
+        completions: {
+          create: jest.fn().mockResolvedValue({
+            choices: [{ message: { content: 'Mocked response' } }]
+          })
+        }
+      }
+    }));
+    
+    // Get fresh mock instance and set up the mock reference
     const mockInstance = new OpenAI();
-    mockCreate = mockInstance.chat.completions.create;
-    mockCreate.mockClear();
-    mockCreate.mockReset();
+    mockCreate = mockInstance.chat.completions.create as jest.Mock;
     
-    // Set up default mock response
-    mockCreate.mockResolvedValue({
-      choices: [{ message: { content: 'Mocked response' } }]
-    });
+    // Clear any timers to prevent interference only if needed
+    try {
+      jest.clearAllTimers();
+    } catch (error) {
+      // Ignore timer errors if fake timers aren't enabled
+    }
   });
 
   afterEach(() => {
     // Restore original environment
     process.env = originalEnv;
     
-    // Additional cleanup to ensure test isolation
+    // Comprehensive cleanup to ensure test isolation
     jest.clearAllMocks();
     jest.resetAllMocks();
+    jest.restoreAllMocks();
     
-    // Explicitly clear any module cache to prevent state leaks
-    jest.clearAllTimers();
+    // Reset module cache to prevent state leakage
+    jest.resetModules();
+    
+    // Clear any remaining timers only if fake timers are being used
+    try {
+      jest.clearAllTimers();
+    } catch (error) {
+      // Ignore timer errors if fake timers aren't enabled
+    }
+    
+    // Explicitly clean OpenAI mock state
+    if (OpenAI.mockClear) {
+      OpenAI.mockClear();
+    }
+    
+    // Force garbage collection of any retained references (if available)
+    if (global.gc) {
+      global.gc();
+    }
   });
 
   test('should have generateCodeChanges function available', () => {
@@ -205,5 +237,143 @@ describe('Code Generation with OpenAI API', () => {
       expect(typeof response).toBe('string');
       expect(mockCreate).toHaveBeenCalledTimes(1);
     });
+
+    test('should handle very long API keys', async () => {
+      process.env.OPENAI_API_KEY = 'sk-' + 'a'.repeat(200);
+      
+      const response = await generateCodeChanges('test prompt');
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    test('should handle API keys with special characters', async () => {
+      process.env.OPENAI_API_KEY = 'sk-test_key-with.special+chars=123';
+      
+      const response = await generateCodeChanges('test prompt');
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Error Recovery and Resilience', () => {
+    test('should handle network timeouts gracefully', async () => {
+      mockCreate.mockRejectedValue(new Error('Request timeout'));
+      
+      await expect(generateCodeChanges('test prompt')).rejects.toThrow('Failed to generate code changes: OpenAI API failed: Request timeout');
+    });
+
+    test('should handle rate limiting errors', async () => {
+      mockCreate.mockRejectedValue(new Error('Rate limit exceeded'));
+      
+      await expect(generateCodeChanges('test prompt')).rejects.toThrow('Failed to generate code changes: OpenAI API failed: Rate limit exceeded');
+    });
+
+    test('should handle authentication errors', async () => {
+      mockCreate.mockRejectedValue(new Error('Invalid API key'));
+      
+      await expect(generateCodeChanges('test prompt')).rejects.toThrow('Failed to generate code changes: OpenAI API failed: Invalid API key');
+    });
+
+    test('should handle service unavailable errors', async () => {
+      mockCreate.mockRejectedValue(new Error('Service temporarily unavailable'));
+      
+      await expect(generateCodeChanges('test prompt')).rejects.toThrow('Failed to generate code changes: OpenAI API failed: Service temporarily unavailable');
+    });
+
+    test('should handle unexpected response format from OpenAI', async () => {
+      mockCreate.mockResolvedValue({
+        // Missing choices array
+        usage: { total_tokens: 100 }
+      });
+      
+      const response = await generateCodeChanges('test prompt');
+      expect(response).toBe('');
+    });
+
+    test('should handle null response from OpenAI', async () => {
+      mockCreate.mockResolvedValue(null);
+      
+      const response = await generateCodeChanges('test prompt');
+      expect(response).toBe('');
+    });
+
+    test('should handle undefined response from OpenAI', async () => {
+      mockCreate.mockResolvedValue(undefined);
+      
+      const response = await generateCodeChanges('test prompt');
+      expect(response).toBe('');
+    });
+  });
+
+  describe('Input Validation and Sanitization', () => {
+    test('should handle extremely long prompts', async () => {
+      const longPrompt = 'A'.repeat(100000);
+      
+      const response = await generateCodeChanges(longPrompt);
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    test('should handle prompts with null bytes', async () => {
+      const malformedPrompt = 'test\x00prompt\x00with\x00nulls';
+      
+      const response = await generateCodeChanges(malformedPrompt);
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    test('should handle prompts with control characters', async () => {
+      const controlPrompt = 'test\x01\x02\x03prompt';
+      
+      const response = await generateCodeChanges(controlPrompt);
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    test('should handle Unicode and emoji in prompts', async () => {
+      const unicodePrompt = 'test 🚀 prompt with ñáéíóú characters';
+      
+      const response = await generateCodeChanges(unicodePrompt);
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    test('should handle repository context with special characters', async () => {
+      const specialContext = 'Repository with\nline breaks\tand\x00nulls';
+      
+      const response = await generateCodeChanges('test prompt', specialContext);
+      expect(typeof response).toBe('string');
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Configuration and Model Settings', () => {
+    test('should respect CODEX_CONFIG temperature setting', () => {
+      expect(CODEX_CONFIG.temperature).toBe(0.1);
+      expect(CODEX_CONFIG.temperature).toBeLessThan(0.5); // Ensure deterministic output
+    });
+
+    test('should respect CODEX_CONFIG max tokens setting', () => {
+      expect(CODEX_CONFIG.maxTokens).toBe(16000);
+      expect(CODEX_CONFIG.maxTokens).toBeGreaterThan(1000); // Ensure sufficient tokens
+    });
+
+    test('should use GPT-4 model for code generation', () => {
+      expect(CODEX_CONFIG.model).toBe('gpt-4');
+    });
+
+    test('should validate model configuration at runtime', async () => {
+      // Mock a successful response to verify config is passed correctly
+      const response = await generateCodeChanges('test prompt');
+      
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'gpt-4',
+          max_tokens: 16000,
+          temperature: 0.1
+        })
+      );
+    });
   });
 });
+

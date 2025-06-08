@@ -211,7 +211,7 @@ export async function runSelfAskFlow(
 
 /**
  * Generate code changes using OpenAI API for development tasks.
- * This replaces the deprecated Codex CLI functionality.
+ * Provides AI-powered code modification capabilities with comprehensive validation.
  */
 export async function generateCodeChanges(
   prompt: string,

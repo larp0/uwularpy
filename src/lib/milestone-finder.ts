@@ -12,6 +12,16 @@ export interface MilestoneSearchOptions {
   debugMode?: boolean; // Enable detailed logging
 }
 
+export interface GitHubUser {
+  login: string;
+  id: number;
+  avatar_url: string;
+  type: 'User' | 'Bot' | 'Organization';
+  site_admin?: boolean;
+  html_url?: string;
+  url?: string;
+}
+
 export interface GitHubMilestone {
   id: number;
   number: number;
@@ -22,30 +32,26 @@ export interface GitHubMilestone {
   updated_at: string;
   due_on: string | null;
   closed_at: string | null;
-  creator: {
-    login: string;
-    id: number;
-    avatar_url: string;
-    type: string;
-  } | null;
+  creator: GitHubUser | null;
   open_issues: number;
   closed_issues: number;
   html_url: string;
-  url: string; // Add missing url property
+  url: string;
+  labels_url?: string;
+  node_id?: string;
 }
 
 export interface GitHubComment {
   id: number;
-  user: {
-    login: string;
-    id: number;
-    avatar_url: string;
-    type: string;
-  } | null;
+  user: GitHubUser | null;
   created_at: string;
   updated_at: string;
-  body?: string | null; // Optional and can be null or undefined
+  body: string | null;
   html_url: string;
+  url?: string;
+  issue_url?: string;
+  node_id?: string;
+  author_association?: 'COLLABORATOR' | 'CONTRIBUTOR' | 'FIRST_TIMER' | 'FIRST_TIME_CONTRIBUTOR' | 'MANNEQUIN' | 'MEMBER' | 'NONE' | 'OWNER';
 }
 
 export interface MilestoneSearchResult {
@@ -53,22 +59,39 @@ export interface MilestoneSearchResult {
   commentCreatedAt: string;
   foundIn: string;
   pattern: string;
+  confidence: number; // 0-100 confidence score for the match
+}
+
+export interface MilestonePattern {
+  name: string;
+  regex: RegExp;
+  priority: number; // Higher priority patterns are preferred
+  description: string;
+}
+
+export interface EnhancedMilestoneSearchOptions extends MilestoneSearchOptions {
+  minConfidence?: number; // Minimum confidence score to accept a match (default: 70)
+  patternPriority?: string[]; // Preferred pattern names in order of preference
+  contextValidation?: boolean; // Enable context-based validation (default: true)
 }
 
 /**
- * Enhanced milestone finding function with better pattern matching and debugging.
+ * Enhanced milestone finding function with better pattern matching, typing, and confidence scoring.
  */
 export async function findMostRecentMilestoneEnhanced(
   octokit: Octokit,
   owner: string,
   repo: string,
   issueNumber: number,
-  options: MilestoneSearchOptions = {}
-): Promise<any | null> {
+  options: EnhancedMilestoneSearchOptions = {}
+): Promise<GitHubMilestone | null> {
   const {
     searchDepth = 200,
     includeAllUsers = false,
-    debugMode = false
+    debugMode = false,
+    minConfidence = 70,
+    patternPriority = [],
+    contextValidation = true
   } = options;
 
   try {
@@ -76,11 +99,13 @@ export async function findMostRecentMilestoneEnhanced(
       issueNumber, 
       searchDepth, 
       includeAllUsers,
-      debugMode 
+      debugMode,
+      minConfidence,
+      contextValidation
     });
 
-    // Get recent comments 
-    const { data: comments } = await octokit.issues.listComments({
+    // Get recent comments with proper typing
+    const { data: comments }: { data: GitHubComment[] } = await octokit.issues.listComments({
       owner,
       repo,
       issue_number: issueNumber,
@@ -92,94 +117,126 @@ export async function findMostRecentMilestoneEnhanced(
     logger.info(`📝 Found ${comments.length} comments to search`);
 
     if (debugMode) {
-      // Log comment authors for debugging
-      const authors = comments.map(c => c.user?.login).filter(Boolean);
+      // Log comment authors for debugging with proper typing
+      const authors = comments
+        .map((c: GitHubComment) => c.user?.login)
+        .filter((login): login is string => Boolean(login));
       const uniqueAuthors = Array.from(new Set(authors));
       logger.info("👥 Comment authors found:", { uniqueAuthors });
     }
 
-    // Enhanced milestone patterns - more comprehensive
-    const milestonePatterns = [
-      // Full GitHub URLs
-      /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/milestone\/(\d+)/gi,
-      // Relative URLs
-      /\/([^\/]+)\/([^\/]+)\/milestone\/(\d+)/gi,
-      // Simple milestone references
-      /milestone\s*#?(\d+)/gi,
-      /milestone:\s*#?(\d+)/gi,
-      /milestone\s+(\d+)/gi,
-      // Markdown links with milestone URLs
-      /\[.*?\]\(.*?milestone\/(\d+).*?\)/gi,
-      // GitHub milestone notifications
-      /created milestone.*?#(\d+)/gi,
-      /assigned to milestone.*?#(\d+)/gi
+    // Enhanced milestone patterns with priority and confidence scoring
+    const milestonePatterns: MilestonePattern[] = [
+      {
+        name: 'full_github_url',
+        regex: /https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/milestone\/(\d+)/gi,
+        priority: 10,
+        description: 'Full GitHub milestone URL'
+      },
+      {
+        name: 'relative_milestone_url',
+        regex: /\/([^\/]+)\/([^\/]+)\/milestone\/(\d+)/gi,
+        priority: 9,
+        description: 'Relative milestone URL'
+      },
+      {
+        name: 'milestone_hash_reference',
+        regex: /milestone\s*#(\d+)/gi,
+        priority: 8,
+        description: 'Milestone hash reference'
+      },
+      {
+        name: 'milestone_colon_reference',
+        regex: /milestone:\s*#?(\d+)/gi,
+        priority: 7,
+        description: 'Milestone colon reference'
+      },
+      {
+        name: 'milestone_spaced',
+        regex: /milestone\s+(\d+)/gi,
+        priority: 6,
+        description: 'Milestone with space'
+      },
+      {
+        name: 'markdown_milestone_link',
+        regex: /\[.*?\]\(.*?milestone\/(\d+).*?\)/gi,
+        priority: 5,
+        description: 'Markdown milestone link'
+      },
+      {
+        name: 'milestone_created_notification',
+        regex: /created milestone.*?#(\d+)/gi,
+        priority: 4,
+        description: 'Milestone creation notification'
+      },
+      {
+        name: 'milestone_assigned_notification',
+        regex: /assigned to milestone.*?#(\d+)/gi,
+        priority: 3,
+        description: 'Milestone assignment notification'
+      }
     ];
 
     const foundMilestones: MilestoneSearchResult[] = [];
 
-    // Search through comments
+    // Search through comments with enhanced validation
     for (const comment of comments) {
       const commentUser = comment.user?.login || 'unknown';
       const shouldSearchComment = includeAllUsers || 
-        commentUser === 'l' || 
-        commentUser === 'uwularpy' || 
-        commentUser.includes('bot') ||
-        commentUser.includes('copilot');
+        isAuthorizedUser(commentUser);
 
       if (shouldSearchComment && comment.body) {
         if (debugMode) {
           logger.info(`🔍 Searching comment from ${commentUser}`, {
             commentId: comment.id,
             bodyLength: comment.body.length,
-            createdAt: comment.created_at
+            createdAt: comment.created_at,
+            authorAssociation: comment.author_association
           });
         }
 
-        // Try each pattern
-        for (let i = 0; i < milestonePatterns.length; i++) {
-          const pattern = milestonePatterns[i];
-          const patternName = `pattern_${i + 1}`;
+        // Search with each pattern and calculate confidence
+        for (const pattern of milestonePatterns) {
+          const matches = findMilestoneMatches(comment.body, pattern, comment, contextValidation);
           
-          let match;
-          pattern.lastIndex = 0; // Reset regex
-          
-          while ((match = pattern.exec(comment.body)) !== null) {
-            // Extract milestone number (always the last capture group)
-            const milestoneNumber = parseInt(match[match.length - 1], 10);
-
-            if (milestoneNumber && milestoneNumber > 0) {
+          for (const match of matches) {
+            if (match.confidence >= minConfidence) {
               try {
                 if (debugMode) {
-                  logger.info(`🎯 Found milestone #${milestoneNumber} using ${patternName}`, {
-                    match: match[0],
+                  logger.info(`🎯 Found milestone #${match.milestoneNumber} using ${pattern.name}`, {
+                    confidence: match.confidence,
+                    matchText: match.matchText,
                     commentUser
                   });
                 }
 
-                // Get milestone details
-                const { data: milestone } = await octokit.issues.getMilestone({
+                // Get milestone details with proper error handling
+                const { data: milestone }: { data: GitHubMilestone } = await octokit.issues.getMilestone({
                   owner,
                   repo,
-                  milestone_number: milestoneNumber
+                  milestone_number: match.milestoneNumber
                 });
 
                 foundMilestones.push({
                   milestone,
                   commentCreatedAt: comment.created_at,
                   foundIn: commentUser,
-                  pattern: patternName
+                  pattern: pattern.name,
+                  confidence: match.confidence
                 });
 
-                logger.info(`✅ Successfully retrieved milestone #${milestoneNumber}`, {
+                logger.info(`✅ Successfully retrieved milestone #${match.milestoneNumber}`, {
                   title: milestone.title,
                   state: milestone.state,
-                  pattern: patternName
+                  pattern: pattern.name,
+                  confidence: match.confidence
                 });
 
               } catch (milestoneError) {
                 if (debugMode) {
-                  logger.warn(`❌ Failed to retrieve milestone #${milestoneNumber}`, {
-                    error: milestoneError instanceof Error ? milestoneError.message : 'Unknown error'
+                  logger.warn(`❌ Failed to retrieve milestone #${match.milestoneNumber}`, {
+                    error: milestoneError instanceof Error ? milestoneError.message : 'Unknown error',
+                    pattern: pattern.name
                   });
                 }
               }
@@ -189,48 +246,176 @@ export async function findMostRecentMilestoneEnhanced(
       }
     }
 
-    if (foundMilestones.length === 0) {
-      logger.warn("❌ No milestones found", {
-        commentsSearched: comments.length,
-        searchedUsers: includeAllUsers ? 'all' : 'bot users only'
-      });
-
-      if (debugMode) {
-        // Sample some comment content for debugging
-        const sampleComments = comments.slice(0, 3).map(c => ({
-          user: c.user?.login,
-          bodyPreview: c.body?.substring(0, 200) + '...',
-          createdAt: c.created_at
-        }));
-        logger.info("📋 Sample comments for debugging:", { sampleComments });
-      }
-
-      return null;
-    }
-
-    // Sort by comment creation time (most recent first)
-    foundMilestones.sort((a, b) =>
-      new Date(b.commentCreatedAt).getTime() - new Date(a.commentCreatedAt).getTime()
-    );
-
-    const mostRecent = foundMilestones[0];
-    logger.info("🏆 Selected most recent milestone", {
-      milestoneNumber: mostRecent.milestone.number,
-      title: mostRecent.milestone.title,
-      foundBy: mostRecent.pattern,
-      foundIn: mostRecent.foundIn,
-      totalFound: foundMilestones.length
-    });
-
-    return mostRecent.milestone;
+    return selectBestMilestone(foundMilestones, patternPriority, debugMode);
 
   } catch (error) {
     logger.error("💥 Error in enhanced milestone search", {
       error: error instanceof Error ? error.message : 'Unknown error',
-      issueNumber
+      issueNumber,
+      stack: error instanceof Error ? error.stack : undefined
     });
     return null;
   }
+}
+
+/**
+ * Check if a user is authorized to create milestone references.
+ */
+function isAuthorizedUser(username: string): boolean {
+  const authorizedUsers = ['l', 'uwularpy', 'copilot'];
+  const authorizedPatterns = ['bot', 'github-actions'];
+  
+  return authorizedUsers.includes(username) || 
+         authorizedPatterns.some(pattern => username.includes(pattern));
+}
+
+/**
+ * Find milestone matches in text with confidence scoring.
+ */
+function findMilestoneMatches(
+  text: string, 
+  pattern: MilestonePattern, 
+  comment: GitHubComment,
+  contextValidation: boolean
+): Array<{ milestoneNumber: number; confidence: number; matchText: string }> {
+  const matches: Array<{ milestoneNumber: number; confidence: number; matchText: string }> = [];
+  let match;
+  
+  // Reset regex state
+  pattern.regex.lastIndex = 0;
+  
+  while ((match = pattern.regex.exec(text)) !== null) {
+    // Extract milestone number (always the last capture group)
+    const milestoneNumber = parseInt(match[match.length - 1], 10);
+    
+    if (milestoneNumber && milestoneNumber > 0) {
+      let confidence = pattern.priority * 10; // Base confidence from pattern priority
+      
+      // Enhance confidence based on context
+      if (contextValidation) {
+        confidence = enhanceConfidenceWithContext(match, text, comment, confidence);
+      }
+      
+      // Ensure confidence doesn't exceed 100
+      confidence = Math.min(100, confidence);
+      
+      matches.push({
+        milestoneNumber,
+        confidence,
+        matchText: match[0]
+      });
+    }
+  }
+  
+  return matches;
+}
+
+/**
+ * Enhance confidence score based on context analysis.
+ */
+function enhanceConfidenceWithContext(
+  match: RegExpExecArray,
+  text: string,
+  comment: GitHubComment,
+  baseConfidence: number
+): number {
+  let confidence = baseConfidence;
+  
+  // Increase confidence for recent comments
+  const commentAge = Date.now() - new Date(comment.created_at).getTime();
+  const daysOld = commentAge / (1000 * 60 * 60 * 24);
+  
+  if (daysOld < 1) confidence += 15;
+  else if (daysOld < 7) confidence += 10;
+  else if (daysOld < 30) confidence += 5;
+  
+  // Increase confidence for authorized users
+  const user = comment.user;
+  if (user) {
+    if (user.type === 'Bot') confidence += 10;
+    if (comment.author_association === 'OWNER' || comment.author_association === 'MEMBER') {
+      confidence += 15;
+    }
+  }
+  
+  // Context keywords that increase confidence
+  const contextKeywords = [
+    'milestone', 'track', 'progress', 'goal', 'target', 'deadline',
+    'release', 'version', 'sprint', 'iteration'
+  ];
+  
+  const surroundingText = text.substring(
+    Math.max(0, match.index! - 100),
+    Math.min(text.length, match.index! + match[0].length + 100)
+  ).toLowerCase();
+  
+  const keywordMatches = contextKeywords.filter(keyword => 
+    surroundingText.includes(keyword)
+  ).length;
+  
+  confidence += keywordMatches * 3;
+  
+  return confidence;
+}
+
+/**
+ * Select the best milestone from candidates based on confidence and priority.
+ */
+function selectBestMilestone(
+  foundMilestones: MilestoneSearchResult[],
+  patternPriority: string[],
+  debugMode: boolean
+): GitHubMilestone | null {
+  if (foundMilestones.length === 0) {
+    logger.warn("❌ No milestones found with sufficient confidence");
+    return null;
+  }
+
+  // Sort by confidence first, then by pattern priority, then by recency
+  foundMilestones.sort((a, b) => {
+    // Primary sort: confidence
+    if (a.confidence !== b.confidence) {
+      return b.confidence - a.confidence;
+    }
+    
+    // Secondary sort: pattern priority
+    const aPriorityIndex = patternPriority.indexOf(a.pattern);
+    const bPriorityIndex = patternPriority.indexOf(b.pattern);
+    
+    if (aPriorityIndex !== -1 && bPriorityIndex !== -1) {
+      return aPriorityIndex - bPriorityIndex;
+    } else if (aPriorityIndex !== -1) {
+      return -1;
+    } else if (bPriorityIndex !== -1) {
+      return 1;
+    }
+    
+    // Tertiary sort: recency
+    return new Date(b.commentCreatedAt).getTime() - new Date(a.commentCreatedAt).getTime();
+  });
+
+  const bestMatch = foundMilestones[0];
+  
+  logger.info("🏆 Selected best milestone match", {
+    milestoneNumber: bestMatch.milestone.number,
+    title: bestMatch.milestone.title,
+    confidence: bestMatch.confidence,
+    pattern: bestMatch.pattern,
+    foundBy: bestMatch.foundIn,
+    totalCandidates: foundMilestones.length
+  });
+
+  if (debugMode && foundMilestones.length > 1) {
+    logger.info("📊 Other milestone candidates", {
+      alternatives: foundMilestones.slice(1, 5).map(m => ({
+        number: m.milestone.number,
+        confidence: m.confidence,
+        pattern: m.pattern
+      }))
+    });
+  }
+
+  return bestMatch.milestone;
 }
 
 /**
@@ -268,19 +453,19 @@ export function testMilestonePatterns(text: string): Array<{ pattern: string; ma
 }
 
 /**
- * Alternative milestone search that looks directly in repository milestones.
+ * Alternative milestone search that looks directly in repository milestones with enhanced typing.
  */
 export async function findMilestonesByDate(
   octokit: Octokit,
   owner: string,
   repo: string,
   daysBack: number = 7
-): Promise<any[]> {
+): Promise<GitHubMilestone[]> {
   try {
     logger.info("📅 Searching milestones by date", { daysBack });
 
-    // Get all milestones
-    const { data: milestones } = await octokit.issues.listMilestones({
+    // Get all milestones with proper typing
+    const { data: milestones }: { data: GitHubMilestone[] } = await octokit.issues.listMilestones({
       owner,
       repo,
       state: 'all',
@@ -291,7 +476,7 @@ export async function findMilestonesByDate(
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
 
-    const recentMilestones = milestones.filter(milestone => {
+    const recentMilestones = milestones.filter((milestone: GitHubMilestone) => {
       const createdDate = new Date(milestone.created_at);
       return createdDate >= cutoffDate;
     });
@@ -302,7 +487,8 @@ export async function findMilestonesByDate(
 
   } catch (error) {
     logger.error("💥 Error searching milestones by date", {
-      error: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
     return [];
   }
