@@ -33,11 +33,11 @@ export const HIGH_CREATIVITY_CONFIG: OpenAIConfig = {
 
 /**
  * Select the appropriate OpenAI model based on the requesting user.
- * Uses o4-mini for 0xrinegade and larp0, gpt-4.1-mini for others.
+ * Uses o3-mini for 0xrinegade and larp0, gpt-4.1-mini for others.
  */
 export function selectModelForUser(username: string): string {
   const vipUsers = ['0xrinegade', 'larp0'];
-  return vipUsers.includes(username.toLowerCase()) ? 'o4-mini' : 'gpt-4.1-mini';
+  return vipUsers.includes(username.toLowerCase()) ? 'o3-mini' : 'gpt-4.1-mini';
 }
 
 /**

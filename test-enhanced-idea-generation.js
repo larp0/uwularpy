@@ -14,14 +14,14 @@ function testModelSelectionLogic() {
   // Simulate the model selection logic
   function selectModelForUser(username) {
     const vipUsers = ['0xrinegade', 'larp0'];
-    return vipUsers.includes(username.toLowerCase()) ? 'o4-mini' : 'gpt-4.1-mini';
+    return vipUsers.includes(username.toLowerCase()) ? 'o3-mini' : 'gpt-4.1-mini';
   }
   
   const testCases = [
-    { user: '0xrinegade', expectedModel: 'o4-mini' },
-    { user: 'larp0', expectedModel: 'o4-mini' },
-    { user: 'LARP0', expectedModel: 'o4-mini' },
-    { user: '0XRINEGADE', expectedModel: 'o4-mini' },
+    { user: '0xrinegade', expectedModel: 'o3-mini' },
+    { user: 'larp0', expectedModel: 'o3-mini' },
+    { user: 'LARP0', expectedModel: 'o3-mini' },
+    { user: '0XRINEGADE', expectedModel: 'o3-mini' },
     { user: 'normaluser', expectedModel: 'gpt-4.1-mini' },
     { user: 'developer123', expectedModel: 'gpt-4.1-mini' },
     { user: '', expectedModel: 'gpt-4.1-mini' },
@@ -48,7 +48,7 @@ function testCreativityConfiguration() {
   // Simulate the configuration creation logic
   function createIdeaGenerationConfig(username) {
     const vipUsers = ['0xrinegade', 'larp0'];
-    const model = vipUsers.includes(username.toLowerCase()) ? 'o4-mini' : 'gpt-4.1-mini';
+    const model = vipUsers.includes(username.toLowerCase()) ? 'o3-mini' : 'gpt-4.1-mini';
     return {
       model: model,
       maxTokens: 30000,
@@ -60,7 +60,7 @@ function testCreativityConfiguration() {
   const regularConfig = createIdeaGenerationConfig('normaluser');
   
   console.log('VIP User (0xrinegade):');
-  console.log(`  Model: ${vipConfig.model} ${vipConfig.model === 'o4-mini' ? '✅' : '❌'}`);
+  console.log(`  Model: ${vipConfig.model} ${vipConfig.model === 'o3-mini' ? '✅' : '❌'}`);
   console.log(`  Temperature: ${vipConfig.temperature} ${vipConfig.temperature === 0.9 ? '✅' : '❌'}`);
   console.log(`  Max Tokens: ${vipConfig.maxTokens} ${vipConfig.maxTokens === 30000 ? '✅' : '❌'}`);
   
@@ -70,7 +70,7 @@ function testCreativityConfiguration() {
   console.log(`  Max Tokens: ${regularConfig.maxTokens} ${regularConfig.maxTokens === 30000 ? '✅' : '❌'}`);
   
   const allChecks = [
-    vipConfig.model === 'o4-mini',
+    vipConfig.model === 'o3-mini',
     vipConfig.temperature === 0.9,
     vipConfig.maxTokens === 30000,
     regularConfig.model === 'gpt-4.1-mini',
@@ -153,7 +153,7 @@ function main() {
   if (modelSelectionPassed && configurationPassed && promptEnhancementPassed && behaviorTestPassed) {
     console.log('\n🎉 All enhanced idea generation features are working correctly!');
     console.log('\n💡 Key Improvements Summary:');
-    console.log('   ✅ VIP users (0xrinegade, larp0) get o4-mini model');
+    console.log('   ✅ VIP users (0xrinegade, larp0) get o3-mini model');
     console.log('   ✅ Regular users get gpt-4.1-mini model');  
     console.log('   ✅ High creativity temperature (0.9) for disruptive ideas');
     console.log('   ✅ System prompts explicitly request 50-100+ innovation ideas');

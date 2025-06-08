@@ -2,11 +2,11 @@ import { selectModelForUser, createIdeaGenerationConfig } from '../openai-operat
 
 describe('OpenAI Operations Enhancement', () => {
   describe('selectModelForUser', () => {
-    it('should select o4-mini for VIP users', () => {
-      expect(selectModelForUser('0xrinegade')).toBe('o4-mini');
-      expect(selectModelForUser('larp0')).toBe('o4-mini');
-      expect(selectModelForUser('LARP0')).toBe('o4-mini'); // Case insensitive
-      expect(selectModelForUser('0XRINEGADE')).toBe('o4-mini'); // Case insensitive
+    it('should select o3-mini for VIP users', () => {
+      expect(selectModelForUser('0xrinegade')).toBe('o3-mini');
+      expect(selectModelForUser('larp0')).toBe('o3-mini');
+      expect(selectModelForUser('LARP0')).toBe('o3-mini'); // Case insensitive
+      expect(selectModelForUser('0XRINEGADE')).toBe('o3-mini'); // Case insensitive
     });
 
     it('should select gpt-4.1-mini for regular users', () => {
@@ -18,9 +18,9 @@ describe('OpenAI Operations Enhancement', () => {
   });
 
   describe('createIdeaGenerationConfig', () => {
-    it('should create high creativity config for VIP users with o4-mini', () => {
+    it('should create high creativity config for VIP users with o3-mini', () => {
       const config = createIdeaGenerationConfig('0xrinegade');
-      expect(config.model).toBe('o4-mini');
+      expect(config.model).toBe('o3-mini');
       expect(config.temperature).toBe(0.9);
       expect(config.maxTokens).toBe(30000);
     });
