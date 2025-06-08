@@ -1,7 +1,7 @@
 // src/lib/binary-uwuify.ts
 // Optimized with GitHub App authentication: Bash-based markdown processing with parallel execution
 
-import { execSync, spawnSync, spawn, exec } from 'child_process';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -38,7 +38,6 @@ export async function uwuifyRepository(repoUrl: string, branchName: string, inst
 
   const githubAppId = process.env.GITHUB_APP_ID;
   const githubPrivateKey = process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  const githubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
   const installationId = installationIdParam;
 
   // Parse repository owner and name from URL

@@ -39,7 +39,7 @@ export interface RateLimitTracker {
   };
 }
 
-let rateLimitTracker: RateLimitTracker = {};
+const rateLimitTracker: RateLimitTracker = {};
 
 /**
  * Simple rate limiter to prevent abuse

@@ -261,7 +261,7 @@ function isApprovalCommand(command: string): boolean {
  * @param command The normalized command to check
  * @returns true if the command is a refinement request
  */
-function isRefinementCommand(command: string): boolean {
+function _isRefinementCommand(command: string): boolean {
   const refinementPatterns = [
     'refine',
     'revise', 
@@ -279,7 +279,7 @@ function isRefinementCommand(command: string): boolean {
  * @param command The normalized command to check
  * @returns true if the command is a cancellation request
  */
-function isCancellationCommand(command: string): boolean {
+function _isCancellationCommand(command: string): boolean {
   const cancellationPatterns = [
     'cancel',
     'reject',
@@ -297,7 +297,7 @@ function isCancellationCommand(command: string): boolean {
  * @param command The normalized command to check
  * @returns true if the command is an execution confirmation
  */
-function isExecutionConfirmationCommand(command: string): boolean {
+function _isExecutionConfirmationCommand(command: string): boolean {
   const confirmationPatterns = [
     'go',
     'proceed',
