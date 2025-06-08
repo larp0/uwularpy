@@ -262,7 +262,7 @@ async function findMostRecentMilestone(
     // Look for milestone URL in recent comments with improved patterns
     for (const comment of comments) {
       if (comment.body) {
-        logger.debug(`Checking comment from ${comment.user.login}`, { 
+        logger.debug(`Checking comment from ${comment.user?.login || 'unknown'}`, { 
           commentId: comment.id,
           createdAt: comment.created_at,
           bodyLength: comment.body.length 
