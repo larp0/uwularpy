@@ -9,6 +9,7 @@ import { loggers } from "./structured-logger";
 /**
  * Sanitize a string to be safe for use in shell commands.
  * Removes or escapes potentially dangerous characters.
+ * This is a more robust version that handles edge cases better.
  */
 export function sanitizeForShell(input: string): string {
   if (!input || typeof input !== 'string') {
@@ -16,12 +17,25 @@ export function sanitizeForShell(input: string): string {
   }
   
   // Remove null bytes and other dangerous characters
-  return input
+  let sanitized = input
     .replace(/\0/g, '') // Remove null bytes
     .replace(/[\r\n]/g, ' ') // Replace newlines with spaces
     .replace(/[`$]/g, '') // Remove backticks and dollar signs
     .replace(/[;&|><]/g, '') // Remove command separators and redirections
+    .replace(/\\/g, '') // Remove backslashes to prevent escaping
+    .replace(/['"]/g, '') // Remove quotes that could break parsing
+    .replace(/\s+/g, ' ') // Normalize whitespace
     .trim();
+  
+  // Additional safety: Limit length to prevent buffer overflows
+  if (sanitized.length > 200) {
+    sanitized = sanitized.substring(0, 200);
+  }
+  
+  // Ensure the result only contains safe characters
+  sanitized = sanitized.replace(/[^\w\s\-\.@]/g, '');
+  
+  return sanitized;
 }
 
 /**
@@ -87,11 +101,11 @@ export function safeGitCommand(command: string[], options: { cwd: string; stdio?
     const result = execFileSync('git', command, {
       cwd: options.cwd,
       stdio: options.stdio || 'pipe',
-      encoding: 'utf-8'
+      encoding: options.stdio === 'inherit' ? undefined : 'utf-8'
     });
     
     logger.completeOperation(`git-${command[0]}`);
-    return result.toString();
+    return options.stdio === 'inherit' ? '' : result.toString();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logger.failOperation(`git-${command[0]}`, errorMessage);
@@ -162,9 +176,14 @@ export function setGitUser(repoPath: string, email: string, name: string): void 
 /**
  * Get a basic repository structure for context in code generation.
  * Returns a summary of the repository layout and important files.
+ * Includes size and token limits to prevent context overflow.
  */
 export function getRepositoryStructure(repoPath: string): string {
   const logger = loggers.git.child({ operation: 'repo-structure' });
+  
+  const MAX_CONTEXT_LENGTH = 8000; // ~2000 tokens at 4 chars per token
+  const MAX_FILE_CONTENT_SIZE = 1000; // Max content size per file
+  const MAX_FILES_PER_CATEGORY = 20; // Limit files to show per category
   
   try {
     // Get list of files in the repository
@@ -181,41 +200,58 @@ export function getRepositoryStructure(repoPath: string): string {
       other: files.filter(f => !f.match(/\.(ts|js|jsx|tsx|py|java|cpp|c|cs|go|rs|php|rb|json|yaml|yml|toml|ini|env|config|test|spec|md|txt|rst|doc)$/i))
     };
     
-    // Build context string
+    // Build context string with size limits
     let context = `# Repository Structure\n\n`;
     context += `Total files: ${files.length}\n\n`;
     
     if (categories.config.length > 0) {
       context += `## Configuration Files (${categories.config.length})\n`;
-      context += categories.config.slice(0, 10).map(f => `- ${f}`).join('\n') + '\n\n';
+      context += categories.config.slice(0, MAX_FILES_PER_CATEGORY).map(f => `- ${f}`).join('\n') + '\n\n';
     }
     
     if (categories.source.length > 0) {
       context += `## Source Files (${categories.source.length})\n`;
-      context += categories.source.slice(0, 20).map(f => `- ${f}`).join('\n') + '\n\n';
+      context += categories.source.slice(0, MAX_FILES_PER_CATEGORY).map(f => `- ${f}`).join('\n') + '\n\n';
     }
     
     if (categories.tests.length > 0) {
       context += `## Test Files (${categories.tests.length})\n`;
-      context += categories.tests.slice(0, 10).map(f => `- ${f}`).join('\n') + '\n\n';
+      context += categories.tests.slice(0, MAX_FILES_PER_CATEGORY).map(f => `- ${f}`).join('\n') + '\n\n';
     }
     
-    // Try to read key files for more context
+    // Try to read key files for more context with size limits
     const keyFiles = ['package.json', 'README.md', 'tsconfig.json'];
     for (const keyFile of keyFiles) {
-      if (files.includes(keyFile)) {
+      if (files.includes(keyFile) && context.length < MAX_CONTEXT_LENGTH) {
         try {
           const content = require('fs').readFileSync(require('path').join(repoPath, keyFile), 'utf8');
-          context += `## ${keyFile}\n\`\`\`\n${content.slice(0, 1000)}\n\`\`\`\n\n`;
+          const truncatedContent = content.slice(0, MAX_FILE_CONTENT_SIZE);
+          const truncationMarker = content.length > MAX_FILE_CONTENT_SIZE ? '\n...(truncated)' : '';
+          
+          const fileSection = `## ${keyFile}\n\`\`\`\n${truncatedContent}${truncationMarker}\n\`\`\`\n\n`;
+          
+          // Only add if it doesn't exceed the context limit
+          if (context.length + fileSection.length <= MAX_CONTEXT_LENGTH) {
+            context += fileSection;
+          } else {
+            context += `## ${keyFile}\n*(file content truncated due to size limits)*\n\n`;
+            break; // Stop adding more files
+          }
         } catch (error) {
           // Ignore file reading errors
         }
       }
     }
     
+    // Final size check and truncation
+    if (context.length > MAX_CONTEXT_LENGTH) {
+      context = context.slice(0, MAX_CONTEXT_LENGTH - 50) + '\n\n...(context truncated)';
+    }
+    
     logger.debug('repo-structure-generated', 'Repository structure generated', { 
       fileCount: files.length,
       contextLength: context.length,
+      maxContextLength: MAX_CONTEXT_LENGTH,
       repoPath 
     });
     

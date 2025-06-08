@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
-import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure } from "./git-utils";
+import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure, safeGitCommand } from "./git-utils";
 import { generateCommitMessage, generateCodeChanges } from "./openai-operations";
 import { processSearchReplaceBlocks } from "./file-operations";
 
@@ -54,18 +54,39 @@ export async function codexRepository(
       }
     }
 
-    // Clone the repository and checkout branch
-    execSync(`git clone ${cloneUrl} ${tempDir}`, { stdio: "inherit" });
-    execSync(`git checkout -b ${branchName}`, { cwd: tempDir, stdio: "inherit" });
+    // Clone the repository and checkout branch using safe git commands
+    safeGitCommand(['clone', cloneUrl, tempDir], { cwd: process.cwd(), stdio: 'inherit' });
+    safeGitCommand(['checkout', '-b', branchName], { cwd: tempDir, stdio: 'inherit' });
 
     // Set Git identity using safe utilities
     setGitUser(tempDir, "bot@larp.dev", "larp0");
 
-    // Use modern OpenAI API to process the repository instead of deprecated Codex CLI
-    const responses = await runModernCodeGeneration(prompt, tempDir);
+    // Use modern OpenAI API to process the repository
+    let responses: string[] = [];
+    try {
+      responses = await runModernCodeGeneration(prompt, tempDir);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error("Code generation failed", { error: errorMessage });
+      
+      // Create a helpful error response instead of failing completely
+      responses = [`# Code Generation Failed
+
+Sorry, I encountered an error while trying to generate code changes:
+
+**Error**: ${errorMessage}
+
+**Possible solutions**:
+1. Check if OPENAI_API_KEY is properly configured
+2. Verify the repository is accessible
+3. Try a simpler or more specific request
+4. Check your OpenAI API usage limits
+
+Please try again with a more specific request or check the configuration.`];
+    }
     
     if (responses.length === 0) {
-      logger.log("No responses generated from Codex CLI");
+      logger.log("No responses generated from code generation");
     } else {
       logger.log("Modern code generation completed", { responsesCount: responses.length });
       
@@ -95,7 +116,7 @@ export async function codexRepository(
     }
 
     // Commit and push changes using safe git utilities
-    execSync("git add .", { cwd: tempDir, stdio: "inherit" });
+    safeGitCommand(['add', '.'], { cwd: tempDir, stdio: 'inherit' });
     
     // Check if there are any changes to commit
     const hasChanges = hasStageChanges(tempDir);
@@ -110,10 +131,9 @@ export async function codexRepository(
       allowEmpty: !hasChanges
     });
     
-    execSync(`git push -u origin ${branchName}`, {
+    safeGitCommand(['push', '-u', 'origin', branchName], {
       cwd: tempDir,
-      stdio: "inherit",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      stdio: 'inherit'
     });
 
     return tempDir;
@@ -133,7 +153,6 @@ export async function codexRepository(
 
 /**
  * Run the modern OpenAI API to process the repository.
- * This replaces the deprecated Codex CLI functionality.
  * @param prompt - The initial prompt for code generation.
  * @param repoPath - Path to the repository directory.
  * @returns Array of responses from OpenAI API.
@@ -171,95 +190,54 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
       promptLength: prompt.length
     });
     
-    // Return an error response instead of empty array to provide feedback
-    return [`# Code Generation Failed
-
-Sorry, I encountered an error while trying to generate code changes:
-
-**Error**: ${errorMessage}
-
-**Possible solutions**:
-1. Check if OPENAI_API_KEY is properly configured
-2. Verify the repository is accessible
-3. Try a simpler or more specific request
-4. Check your OpenAI API usage limits
-
-Please try again with a more specific request or check the configuration.`];
+    // Re-throw the error to maintain consistent error handling
+    throw new Error(`Code generation failed: ${errorMessage}`);
   }
 }
 
 /**
  * Evaluate the quality of the response and optimize it.
+ * Simplified version without risky regex operations.
  * @param reply - The reply from OpenAI API.
  * @param repoPath - Path to the repository for context.
  * @returns Optimized reply.
  */
 function evaluateAndOptimize(reply: string, _repoPath: string): string {
-  // Step 1: Extract any code blocks for separate evaluation
-  const codeBlocks: string[] = [];
-  const textWithoutCodeBlocks = reply.replace(/```[\s\S]*?```/g, (match) => {
-    codeBlocks.push(match);
-    return `CODE_BLOCK_${codeBlocks.length - 1}`;
-  });
-
-  // Step 2: Evaluate the clarity and completeness of the text
-  let optimizedText = textWithoutCodeBlocks;
-
-  // Check for vague statements and add specificity
-  optimizedText = optimizedText.replace(
-    /I (will|would|could|should|might) (do|implement|create|modify|change|update|fix) ([\w\s]+)/gi,
-    "I will specifically $2 $3 by following these steps: "
-  );
-
-  // Ensure all TODO items have clear next steps
-  optimizedText = optimizedText.replace(
-    /TODO: ([\w\s]+)(?!\s*\d\.)/gi,
-    "TODO: $1\n1. "
-  );
-
-  // Step 3: Evaluate code blocks for syntax errors and best practices
-  const optimizedCodeBlocks = codeBlocks.map((block) => {
-    // Remove the code block markers for processing
-    const code = block.replace(/```[\w]*\n|```$/g, "");
-
-    // Check for common issues in code
-    let optimizedCode = code;
-
-    // Add proper error handling where missing
-    if (code.includes("try {") && !code.includes("catch")) {
-      optimizedCode = optimizedCode.replace(
-        /try {([\s\S]*?)}/g,
-        "try {$1} catch (error) {\n  console.error('Operation failed:', error);\n}"
-      );
-    }
-
-    // Ensure async/await consistency
-    if (code.includes("await") && !code.includes("async")) {
-      optimizedCode = "async " + optimizedCode;
-    }
-
-    // Wrap back in code block markers
-    const language = block.match(/```([\w]*)/)?.[1] || "";
-    return "```" + language + "\n" + optimizedCode + "\n```";
-  });
-
-  // Step 4: Reassemble the text with optimized code blocks
-  let finalOptimizedReply = optimizedText;
-  for (let i = 0; i < optimizedCodeBlocks.length; i++) {
-    finalOptimizedReply = finalOptimizedReply.replace(
-      `CODE_BLOCK_${i}`,
-      optimizedCodeBlocks[i]
-    );
+  // Basic validation and cleanup without complex regex manipulation
+  if (!reply || typeof reply !== 'string') {
+    return '';
   }
-
-  // Step 5: Final readability improvements
-  finalOptimizedReply = finalOptimizedReply
-    // Ensure clear section breaks
-    .replace(/(?<!\n\n)(#+\s.*)/g, "\n\n$1")
-    // Ensure list items are properly formatted
-    .replace(/(?<!\n)(\d+\.\s)/g, "\n$1");
-
-  return finalOptimizedReply;
+  
+  // Simple cleanup operations that are safe
+  let optimizedReply = reply
+    // Normalize line endings
+    .replace(/\r\n/g, '\n')
+    // Remove excessive whitespace
+    .replace(/\n{3,}/g, '\n\n')
+    // Trim whitespace
+    .trim();
+  
+  // Basic validation - ensure the reply is reasonable
+  if (optimizedReply.length < 10) {
+    logger.warn("Reply appears too short after optimization", { 
+      originalLength: reply.length,
+      optimizedLength: optimizedReply.length 
+    });
+  }
+  
+  if (optimizedReply.length > 50000) {
+    logger.warn("Reply is very long, truncating", { 
+      originalLength: reply.length 
+    });
+    optimizedReply = optimizedReply.slice(0, 50000) + '\n\n...(truncated due to length)';
+  }
+  
+  logger.log("Response optimized", {
+    originalLength: reply.length,
+    optimizedLength: optimizedReply.length
+  });
+  
+  return optimizedReply;
 }
 
 /**
