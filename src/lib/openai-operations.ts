@@ -66,6 +66,7 @@ function createOpenAIClient(): OpenAI {
 
 /**
  * Generate a response using OpenAI API with proper validation.
+ * Handles different API requirements for o3 reasoning models vs GPT models.
  */
 export async function generateAIResponse(
   prompt: string, 
@@ -81,7 +82,10 @@ export async function generateAIResponse(
   });
   
   try {
-    const response = await openai.chat.completions.create({
+    const isReasoningModel = config.model.startsWith('o3');
+    
+    // Build the request parameters based on model type
+    const requestParams: any = {
       model: config.model,
       messages: [
         ...(systemMessage ? [{
@@ -92,10 +96,19 @@ export async function generateAIResponse(
           role: "user" as const,
           content: prompt
         }
-      ],
-      max_tokens: config.maxTokens,
-      temperature: config.temperature
-    });
+      ]
+    };
+    
+    // o3 reasoning models use different parameter names and don't support temperature
+    if (isReasoningModel) {
+      requestParams.max_completion_tokens = config.maxTokens;
+      // o3 models don't support temperature parameter
+    } else {
+      requestParams.max_tokens = config.maxTokens;
+      requestParams.temperature = config.temperature;
+    }
+    
+    const response = await openai.chat.completions.create(requestParams);
     
     const content = response.choices[0]?.message?.content || "";
     
