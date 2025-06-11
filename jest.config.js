@@ -14,7 +14,8 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/**/__tests__/**'
   ],
-  moduleNameMapping: {
+  modulePathIgnorePatterns: [],
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1'
   },
   testTimeout: 10000,

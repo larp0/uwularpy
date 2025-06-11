@@ -207,3 +207,176 @@ export function extractSearchReplaceBlocks(response: string): SearchReplaceOpera
   // Additional sanitization pass
   return sanitizeSearchReplaceOperations(operations);
 }
+
+/**
+ * Sanitize Mermaid diagram by removing problematic symbols from node names (labels).
+ * Preserves diagram structure, arrows, and syntax while cleaning only the node labels.
+ * 
+ * @param mermaidDiagram - The raw Mermaid diagram string
+ * @returns The sanitized Mermaid diagram string
+ */
+export function sanitizeMermaidDiagram(mermaidDiagram: string): string {
+  if (!mermaidDiagram || typeof mermaidDiagram !== 'string') {
+    logger.warn('Invalid mermaid diagram input', { input: mermaidDiagram });
+    return '';
+  }
+
+  logger.log('Sanitizing mermaid diagram', { 
+    originalLength: mermaidDiagram.length 
+  });
+
+  // Split diagram into lines for processing
+  const lines = mermaidDiagram.split('\n');
+  const sanitizedLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    let sanitizedLine = line;
+
+    // Skip empty lines and diagram type declarations
+    if (!line.trim() || 
+        line.trim().startsWith('flowchart') || 
+        line.trim().startsWith('graph') ||
+        line.trim().startsWith('sequenceDiagram') ||
+        line.trim().startsWith('classDiagram') ||
+        line.trim().startsWith('stateDiagram') ||
+        line.trim().startsWith('erDiagram') ||
+        line.trim().startsWith('gantt') ||
+        line.trim().startsWith('pie') ||
+        line.trim().startsWith('mindmap') ||
+        line.trim().startsWith('gitGraph') ||
+        line.trim().startsWith('journey') ||
+        line.trim().startsWith('requirement') ||
+        line.trim().startsWith('C4Context') ||
+        line.trim().startsWith('%%') || // Comments
+        line.trim().startsWith('class ') || // Class definitions
+        line.trim().startsWith('click ') || // Click events
+        line.trim().startsWith('style ') // Style definitions
+    ) {
+      sanitizedLines.push(line);
+      continue;
+    }
+
+    // Process node definitions and connections
+    // Use simple regex patterns that work correctly
+    
+    // Parentheses: nodeId("content")
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\(\s*"([^"]*)"\s*\)/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\(\s*'([^']*)'\s*\)/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    // Square brackets: nodeId["content"] - use greedy match up to the last quote
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\[\s*"(.*?)"\s*\]/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\[\s*'(.*?)'\s*\]/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    // Curly braces: nodeId{"content"}
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\{\s*"([^"]*)"\s*\}/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\{\s*'([^']*)'\s*\}/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    // Double curly braces: nodeId{{"content"}}
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\{\{\s*"([^"]*)"\s*\}\}/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\{\{\s*'([^']*)'\s*\}\}/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+    
+    // Handle unquoted content in braces
+    sanitizedLine = sanitizedLine.replace(/(\w+)\s*\{\s*([^"'\{\}]+?)\s*\}/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `${nodeId}["${sanitizedLabel}"]`;
+    });
+
+    // Handle participant definitions in sequence diagrams
+    sanitizedLine = sanitizedLine.replace(/participant\s+(\w+)\s+as\s+"([^"]*)"/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `participant ${nodeId} as "${sanitizedLabel}"`;
+    });
+    
+    sanitizedLine = sanitizedLine.replace(/participant\s+(\w+)\s+as\s+'([^']*)'/g, (match, nodeId, label) => {
+      const sanitizedLabel = sanitizeNodeLabel(label);
+      return `participant ${nodeId} as "${sanitizedLabel}"`;
+    });
+
+    sanitizedLines.push(sanitizedLine);
+  }
+
+  const result = sanitizedLines.join('\n');
+  
+  logger.log('Mermaid diagram sanitization complete', {
+    originalLength: mermaidDiagram.length,
+    sanitizedLength: result.length,
+    linesProcessed: lines.length
+  });
+
+  return result;
+}
+
+/**
+ * Sanitize individual node label by removing problematic symbols.
+ * Keeps alphanumeric characters, spaces, hyphens, and underscores.
+ * 
+ * @param label - The original node label
+ * @returns The sanitized label
+ */
+export function sanitizeNodeLabel(label: string): string {
+  if (typeof label !== 'string') {
+    return '';
+  }
+  
+  if (!label) {
+    return 'node';
+  }
+
+  // Remove problematic symbols while preserving meaningful content
+  let sanitized = label
+    // Remove quotes, parentheses, brackets, braces
+    .replace(/["'`()[\]{}]/g, '')
+    // Remove colons, semicolons, commas that can break Mermaid syntax
+    .replace(/[;:,]/g, '')
+    // Remove pipe symbols (used for Mermaid syntax)
+    .replace(/\|/g, '')
+    // Remove backslashes and forward slashes
+    .replace(/[\\\/]/g, '')
+    // Remove other symbols that can cause parsing issues
+    .replace(/[<>&$#@!%^*+=~?]/g, '')
+    // Replace multiple spaces with single space
+    .replace(/\s+/g, ' ')
+    // Trim whitespace
+    .trim();
+
+  // If label becomes empty, provide a fallback
+  if (!sanitized) {
+    sanitized = 'node';
+  }
+
+  // Ensure label doesn't start with a number (Mermaid requirement)
+  if (sanitized.match(/^\d/)) {
+    sanitized = 'n' + sanitized;
+  }
+
+  return sanitized;
+}

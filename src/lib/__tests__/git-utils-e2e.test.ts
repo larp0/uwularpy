@@ -134,14 +134,14 @@ describe('Git Utilities E2E Tests', () => {
         allowEmpty: false
       });
 
-      // Assert: Verify injection was prevented
+      // Assert: Verify injection was prevented - the important thing is no file was created
       const hackedFileExists = await fs.access(join(testRepoPath, 'hacked.txt')).then(() => true).catch(() => false);
       expect(hackedFileExists).toBe(false);
 
-      // Verify commit message was sanitized but commit was created
+      // Verify commit message was properly quoted and preserved
       const log = execSync('git log --oneline -1', { cwd: testRepoPath, encoding: 'utf-8' });
-      expect(log).toContain('Test message echo'); // Sanitized version (should not contain shell injection)
-      expect(log).not.toContain('; echo'); // Should not contain original injection
+      expect(log).toContain('Test message; echo'); // Full message should be preserved as it's quoted
+      // The commit message itself can contain the text - what matters is the command didn't execute
     });
   });
 

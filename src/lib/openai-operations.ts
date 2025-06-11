@@ -20,9 +20,15 @@ export const DEFAULT_CONFIG: OpenAIConfig = {
 };
 
 export const COMMIT_MESSAGE_CONFIG: OpenAIConfig = {
-  model: "gpt-4.1-nano", 
+  model: "gpt-4.1-mini", 
   maxTokens: 420,
   temperature: 0.3
+};
+
+export const CODEX_CONFIG: OpenAIConfig = {
+  model: "gpt-4.1-mini",
+  maxTokens: 16000,
+  temperature: 0.1  // Lower temperature for more deterministic code generation
 };
 
 export const HIGH_CREATIVITY_CONFIG: OpenAIConfig = {
@@ -52,15 +58,35 @@ export function createIdeaGenerationConfig(username: string): OpenAIConfig {
 }
 
 /**
- * Initialize OpenAI client with error handling.
+ * Initialize OpenAI client with comprehensive error handling.
+ * Ensures OPENAI_API_KEY is always properly validated.
  */
 function createOpenAIClient(): OpenAI {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY environment variable is not set');
+  const apiKey = process.env.OPENAI_API_KEY;
+  
+  // Comprehensive validation of API key
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY environment variable is not set. Please configure your OpenAI API key.');
+  }
+  
+  if (typeof apiKey !== 'string') {
+    throw new Error('OPENAI_API_KEY must be a string value.');
+  }
+  
+  if (apiKey.trim().length === 0) {
+    throw new Error('OPENAI_API_KEY cannot be empty.');
+  }
+  
+  // Basic format validation (OpenAI keys typically start with 'sk-')
+  if (!apiKey.startsWith('sk-') && !apiKey.startsWith('sk-proj-')) {
+    logger.warn('API key format may be invalid', { 
+      keyPrefix: apiKey.substring(0, 6),
+      keyLength: apiKey.length 
+    });
   }
   
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: apiKey,
   });
 }
 
@@ -177,7 +203,7 @@ export async function generateCommitMessage(diffContent: string): Promise<string
  */
 export async function runSelfAskFlow(
   initialPrompt: string,
-  maxIterations: number = 10
+  maxIterations: number = 3
 ): Promise<string[]> {
   const responses: string[] = [];
   
@@ -222,4 +248,61 @@ export async function runSelfAskFlow(
   }
   
   return responses;
+}
+
+/**
+ * Generate code changes using OpenAI API for development tasks.
+ * Provides AI-powered code modification capabilities with comprehensive validation.
+ */
+export async function generateCodeChanges(
+  prompt: string,
+  repositoryContext?: string,
+  config: OpenAIConfig = CODEX_CONFIG
+): Promise<string> {
+  try {
+    logger.log("Generating code changes with OpenAI API", { 
+      promptLength: prompt.length,
+      contextLength: repositoryContext?.length || 0,
+      model: config.model
+    });
+
+    const systemMessage = `You are an expert software developer and code assistant. Your task is to analyze the provided code repository context and user request, then generate precise code changes to accomplish the requested goal.
+
+IMPORTANT INSTRUCTIONS:
+1. Always use SEARCH/REPLACE blocks when modifying files
+2. Follow this exact format for file modifications:
+
+\`\`\`search-replace
+FILE: path/to/file.ext <<<<<<< SEARCH exact content to find (must match exactly) ======= new content to replace with >>>>>>> REPLACE
+\`\`\`
+
+3. Provide clear explanations for each change
+4. Focus on minimal, surgical changes rather than large rewrites
+5. Ensure all changes are functional and follow best practices
+6. Test-driven approach when applicable
+
+For each request:
+- Analyze the current codebase structure
+- Identify the specific files that need changes
+- Generate precise search/replace blocks
+- Explain the reasoning behind each change
+- Consider edge cases and error handling`;
+
+    const enhancedPrompt = repositoryContext 
+      ? `REPOSITORY CONTEXT:\n${repositoryContext}\n\nUSER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`
+      : `USER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`;
+
+    const response = await generateAIResponse(enhancedPrompt, systemMessage, config);
+    
+    logger.log("Code generation completed", { 
+      responseLength: response.length,
+      model: config.model
+    });
+
+    return response;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("Code generation failed", { error: errorMessage });
+    throw new Error(`Failed to generate code changes: ${errorMessage}`);
+  }
 }
