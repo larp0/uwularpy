@@ -505,11 +505,11 @@ CURRENT IDEAS (${currentAnalysis.innovationIdeas.length} total):
 ${currentAnalysis.innovationIdeas.map((idea, i) => `${i + 1}. ${idea}`).join('\n')}
 
 Your task for Round ${round}:
-1. **EXPAND**: Add 20-30 NEW disruptive innovation ideas that build on or complement the existing ones
-2. **DIVERSIFY**: Ensure ideas span different categories (AI/ML, Web3, IoT, AR/VR, blockchain, automation, etc.)
+1. **EXPAND**: Add 2-3 NEW disruptive innovation ideas that build on or complement the existing ones
+2. **FAST**: Ensure ideas are relevant to the project roadmap and fast to implement (1h - 24h max)
 3. **ESCALATE CREATIVITY**: Each new idea should be bolder and more unconventional than typical suggestions
 4. **CHALLENGE ASSUMPTIONS**: Think about impossible-seeming concepts that could become reality
-5. **CROSS-POLLINATE**: Combine ideas from different domains to create hybrid innovations
+5. **REVENUE FOCUSED**: Ideas must be focused on creating new revenue channel or enhancing current ones, no buzzword fancy ai slop
 
 Return ONLY a JSON array of NEW innovation ideas (don't repeat existing ones):
 {
@@ -626,7 +626,8 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
 - Missing testing/monitoring creating blind spots
 - Outdated dependencies with known vulnerabilities
 
-🎨 INNOVATION CRITERIA - GENERATE AT LEAST 10 TIMES MORE IDEAS THAN USUAL:
+🎨 INNOVATION CRITERIA - GENERATE AT LEAST 5 MORE IDEAS THAN USUAL:
+- Revenue, revenue, revenue
 - Market differentiation potential
 - User experience enhancement  
 - Developer productivity gains
@@ -637,10 +638,9 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
 - UNHINGED creativity that pushes boundaries
 - Consider ideas that seem impossible but could revolutionize the space
 
-**CRITICAL: For innovation ideas, generate AT LEAST 50-100 distinct ideas covering:**
+**CRITICAL: For innovation ideas, generate AT LEAST 5 distinct ideas covering:**
 - Revolutionary feature concepts that don't exist yet
 - Completely new business models enabled by this technology
-- Disruptive integrations with emerging technologies (AI, Web3, IoT, etc.)
 - Unconventional user interaction paradigms
 - Bold architectural innovations
 - Creative monetization strategies
@@ -666,16 +666,15 @@ Return analysis with realistic timelines, clear dependencies, and honest assessm
     "Code quality issue [Size: S-M, Priority: Could] - Long-term maintenance burden"
   ],
   "innovationIdeas": [
-    "GENERATE MANY MORE IDEAS HERE - minimum 50-100 creative, disruptive concepts",
-    "Revolutionary AI-powered feature that completely transforms user workflow",
+    "GENERATE MANY MORE IDEAS HERE - minimum 5 creative, disruptive concepts",
     "Breakthrough integration with emerging tech that creates new market category",
     "Disruptive business model that challenges industry assumptions",
     "Bold architectural innovation that enables impossible scale",
-    "... continue with at least 50+ more creative, boundary-pushing ideas"
+    "... continue with at least 10+ more creative, boundary-pushing ideas"
   ]
 }
 
-Be brutally honest about effort, realistic about timelines, and crystal clear about business justification. Be UNHINGED with innovation ideas - think bigger, bolder, more disruptive than normal AI responses.`;
+Be brutally honest about effort, realistic about timelines, and crystal clear about business justification. Be UNHINGED and REVENUE-focused with innovation ideas - think bigger, bolder, more disruptive than normal AI responses.`;
 
   // Truncate repository content to prevent token limits
   const truncatedContent = truncateContent(repositoryContent, config.maxContentLength);
