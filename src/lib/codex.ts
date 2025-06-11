@@ -5,7 +5,7 @@ import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
 import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure, getRepositoryStructureAsync, safeGitCommand, safeGitPushWithRetry } from "./git-utils";
-import { generateCommitMessage, generateCodeChanges } from "./openai-operations";
+import { generateCommitMessage } from "./openai-operations";
 import { processSearchReplaceBlocks } from "./file-operations";
 
 // Constants for regex patterns and delimiters
@@ -276,6 +276,55 @@ export async function codexRepository(
 }
 
 /**
+ * Run the @openai/codex CLI tool to process code generation requests.
+ * @param prompt - The initial prompt for code generation.
+ * @param repositoryContext - Repository context information.
+ * @param repoPath - Path to the repository directory.
+ * @returns Generated response from the CLI tool.
+ */
+async function runCodexCLI(prompt: string, repositoryContext: string, repoPath: string): Promise<string> {
+  try {
+    logger.log("Running @openai/codex CLI tool", { 
+      promptLength: prompt.length,
+      contextLength: repositoryContext.length,
+      repoPath 
+    });
+
+    // Prepare the enhanced prompt with repository context
+    const enhancedPrompt = repositoryContext 
+      ? `REPOSITORY CONTEXT:\n${repositoryContext}\n\nUSER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`
+      : `USER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`;
+
+    // Execute the @openai/codex CLI tool
+    const command = 'npx @openai/codex --approval-mode full-auto';
+    
+    logger.log("Executing @openai/codex CLI", { command });
+    
+    const response = execSync(command, {
+      cwd: repoPath,
+      input: enhancedPrompt,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'], // stdin, stdout, stderr
+      env: {
+        ...process.env,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY
+      },
+      timeout: 300000 // 5 minutes timeout
+    });
+
+    logger.log("@openai/codex CLI completed successfully", { 
+      responseLength: response.length 
+    });
+
+    return response;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error("@openai/codex CLI failed", { error: errorMessage });
+    throw new Error(`@openai/codex CLI failed: ${errorMessage}`);
+  }
+}
+
+/**
  * Run the modern OpenAI API to process the repository.
  * @param prompt - The initial prompt for code generation.
  * @param repoPath - Path to the repository directory.
@@ -306,8 +355,8 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
       }
     }
     
-    // Generate code changes using OpenAI API
-    const response = await generateCodeChanges(prompt, repositoryContext);
+    // Generate code changes using @openai/codex CLI tool
+    const response = await runCodexCLI(prompt, repositoryContext, repoPath);
     
     logger.log("Code generation completed", { 
       responseLength: response.length,
