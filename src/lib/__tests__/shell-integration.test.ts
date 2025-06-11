@@ -107,6 +107,273 @@ describe('Shell Integration Tests - Unusual Filenames', () => {
       expect(result.endsWith("'")).toBe(true);
     });
 
+    test('should handle nested quote patterns safely', () => {
+      const input = `file'"'"'with'"'"'nested.txt`;
+      const result = sanitizeForShell(input);
+      
+      // Should properly escape the complex quoting
+      expect(result).toContain("'");
+      expect(result.startsWith("'")).toBe(true);
+      expect(result.endsWith("'")).toBe(true);
+    });
+
+    test('should handle shell redirection operators', () => {
+      const patterns = ['file>output.txt', 'file<input.txt', 'file>>append.txt', 'file|pipe.txt'];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+        expect(result.startsWith("'")).toBe(true);
+        expect(result.endsWith("'")).toBe(true);
+      });
+    });
+
+    test('should handle shell logical operators', () => {
+      const patterns = ['file&&success.txt', 'file||failure.txt', 'file;next.txt'];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+      });
+    });
+
+    test('should handle subshell patterns', () => {
+      const patterns = ['file$(date).txt', 'file`date`.txt', 'file$((1+1)).txt'];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+      });
+    });
+
+    test('should handle here-document patterns', () => {
+      const input = 'file<<EOF\ncontent\nEOF';
+      const result = sanitizeForShell(input);
+      
+      // Newlines should be converted to spaces
+      expect(result).toBe("'file<<EOF content EOF'");
+    });
+
+    test('should handle comment patterns', () => {
+      const input = 'file.txt#comment';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file.txt#comment'");
+    });
+
+    test('should handle brace expansion patterns', () => {
+      const patterns = [
+        'file{1,2,3}.txt',
+        'file{a..z}.txt',
+        'file{01..10}.txt'
+      ];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+      });
+    });
+
+    test('should handle arithmetic expansion', () => {
+      const input = 'file$[1+1].txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file$[1+1].txt'");
+    });
+
+    test('should handle process substitution with complex commands', () => {
+      const input = 'file<(ps aux | grep ssh).txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file<(ps aux | grep ssh).txt'");
+    });
+
+    test('should handle extended glob patterns', () => {
+      const patterns = [
+        'file?(pattern).txt',
+        'file*(pattern).txt',
+        'file+(pattern).txt',
+        'file@(pattern).txt',
+        'file!(pattern).txt'
+      ];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+      });
+    });
+
+    test('should handle path expansion with complex paths', () => {
+      const input = '~user/Documents/../file.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'~user/Documents/../file.txt'");
+    });
+
+    test('should handle parameter expansion variations', () => {
+      const patterns = [
+        '${var}',
+        '${var:-default}',
+        '${var:+alternate}',
+        '${var:?error}',
+        '${#var}',
+        '${var%suffix}',
+        '${var%%suffix}',
+        '${var#prefix}',
+        '${var##prefix}',
+        '${var/pattern/replacement}'
+      ];
+      
+      patterns.forEach(pattern => {
+        const input = `file${pattern}.txt`;
+        const result = sanitizeForShell(input);
+        expect(result).toBe(`'file${pattern}.txt'`);
+      });
+    });
+
+    test('should handle history expansion patterns', () => {
+      const patterns = ['file!!.txt', 'file!n.txt', 'file!string.txt'];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+      });
+    });
+
+    test('should handle complex escape sequences in filenames', () => {
+      const input = 'file\\n\\t\\r\\a\\b\\f\\v.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file\\n\\t\\r\\a\\b\\f\\v.txt'");
+    });
+
+    test('should handle octal and hexadecimal escape sequences', () => {
+      const patterns = [
+        'file\\040space.txt',  // octal for space
+        'file\\x20space.txt',  // hex for space
+        'file\\141a.txt',      // octal for 'a'
+        'file\\x61a.txt'       // hex for 'a'
+      ];
+      
+      patterns.forEach(pattern => {
+        const result = sanitizeForShell(pattern);
+        expect(result).toBe(`'${pattern}'`);
+      });
+    });
+
+    test('should handle international domain names and punycode', () => {
+      const input = 'file-from-café.münchen.example.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file-from-café.münchen.example.txt'");
+    });
+
+    test('should handle mixed encoding scenarios', () => {
+      const input = 'file-\u00E9\u0301.txt'; // é with combining accent
+      const result = sanitizeForShell(input);
+      
+      expect(result).toMatch(/^'.*\.txt'$/);
+      expect(result.startsWith("'")).toBe(true);
+      expect(result.endsWith("'")).toBe(true);
+    });
+
+    test('should handle extremely long input strings', () => {
+      const longInput = 'file-' + 'a'.repeat(5000) + '.txt';
+      const result = sanitizeForShell(longInput);
+      
+      // Should be truncated to 1000 chars max + quotes
+      expect(result.length).toBeLessThanOrEqual(1002);
+      expect(result.startsWith("'")).toBe(true);
+      expect(result.endsWith("'")).toBe(true);
+    });
+
+    test('should handle input with only whitespace', () => {
+      const whitespaceInputs = ['   ', '\t\t\t', '\n\n\n', ' \t\n\r '];
+      
+      whitespaceInputs.forEach(input => {
+        const result = sanitizeForShell(input);
+        expect(result).toBe("''"); // Should return empty quoted string
+      });
+    });
+
+    test('should handle input with only special characters', () => {
+      const specialInputs = ['!!!', '???', '***', '###', '$$$'];
+      
+      specialInputs.forEach(input => {
+        const result = sanitizeForShell(input);
+        expect(result).toBe(`'${input}'`);
+      });
+    });
+
+    test('should handle malformed Unicode sequences', () => {
+      // Create a string with invalid UTF-8 sequences (if possible in JavaScript)
+      const input = 'file-\uD800.txt'; // Lone high surrogate
+      const result = sanitizeForShell(input);
+      
+      expect(result.startsWith("'")).toBe(true);
+      expect(result.endsWith("'")).toBe(true);
+    });
+
+    test('should handle input with replacement characters', () => {
+      const input = 'file-\uFFFD-replacement.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file-\uFFFD-replacement.txt'");
+    });
+
+    test('should handle bidirectional text control characters', () => {
+      const input = 'file-\u202E\u202D-bidi.txt'; // RLO and LRO characters
+      const result = sanitizeForShell(input);
+      
+      expect(result.startsWith("'")).toBe(true);
+      expect(result.endsWith("'")).toBe(true);
+    });
+
+    test('should handle line and paragraph separators', () => {
+      const input = 'file\u2028line\u2029paragraph.txt';
+      const result = sanitizeForShell(input);
+      
+      // These should be converted to spaces
+      expect(result).toBe("'file line paragraph.txt'");
+    });
+
+    test('should handle zero-width joiners and non-joiners', () => {
+      const input = 'file-\u200C\u200D-zwj.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'file-\u200C\u200D-zwj.txt'");
+    });
+
+    test('should handle mathematical and scientific notation', () => {
+      const input = 'data-1.5e+10-scientific.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'data-1.5e+10-scientific.txt'");
+    });
+
+    test('should handle paths with multiple consecutive separators', () => {
+      const input = 'path//to///file.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'path//to///file.txt'");
+    });
+
+    test('should handle Windows UNC paths', () => {
+      const input = '\\\\server\\share\\file.txt';
+      const result = sanitizeForShell(input);
+      
+      expect(result).toBe("'\\\\server\\share\\file.txt'");
+    });
+
+    test('should handle device files and special paths', () => {
+      const specialPaths = ['/dev/null', '/proc/self/fd/0', '\\\\.\\CON', 'COM1:', 'LPT1:'];
+      
+      specialPaths.forEach(specialPath => {
+        const result = sanitizeForShell(specialPath);
+        expect(result).toBe(`'${specialPath}'`);
+      });
+    });
+
     test('should prevent backtick command substitution', () => {
       const maliciousInput = 'file`rm -rf /`name.txt';
       const result = sanitizeForShell(maliciousInput);

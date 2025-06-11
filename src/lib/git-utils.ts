@@ -1,5 +1,6 @@
 import { execSync, spawn, execFileSync } from "child_process";
 import { loggers } from "./structured-logger";
+import { getGitOperationsConfig } from "./config";
 
 /**
  * Safe git utilities that prevent shell injection attacks.
@@ -12,6 +13,8 @@ import { loggers } from "./structured-logger";
  * Preserves legitimate use cases like paths with spaces and parentheses.
  */
 export function sanitizeForShell(input: string): string {
+  const config = getGitOperationsConfig();
+  
   if (!input || typeof input !== 'string') {
     return "''"; // Return empty quoted string
   }
@@ -25,9 +28,10 @@ export function sanitizeForShell(input: string): string {
   // Normalize multiple whitespace to single spaces
   sanitized = sanitized.replace(/\s+/g, ' ').trim();
   
-  // Additional safety: Limit length to prevent buffer overflows
-  if (sanitized.length > 1000) {
-    sanitized = sanitized.substring(0, 1000);
+  // Additional safety: Limit length using configurable max
+  const maxLength = config.maxCommitMessageLength || 1000;
+  if (sanitized.length > maxLength) {
+    sanitized = sanitized.substring(0, maxLength);
   }
   
   // If string is empty after sanitization, return empty quoted string
@@ -184,20 +188,25 @@ export function setGitUser(repoPath: string, email: string, name: string): void 
  * Execute git push with retry and exponential backoff for resilience.
  * @param repoPath - Repository path.
  * @param branchName - Branch name to push.
- * @param maxRetries - Maximum number of retry attempts (default: 3).
- * @param baseDelay - Base delay in milliseconds (default: 1000).
+ * @param maxRetries - Maximum number of retry attempts (uses config default if not provided).
+ * @param baseDelay - Base delay in milliseconds (uses config default if not provided).
  */
 export async function safeGitPushWithRetry(
   repoPath: string, 
   branchName: string, 
-  maxRetries: number = 3,
-  baseDelay: number = 1000
+  maxRetries?: number,
+  baseDelay?: number
 ): Promise<void> {
+  const config = getGitOperationsConfig();
+  const retries = maxRetries ?? config.maxRetries;
+  const delay = baseDelay ?? config.baseDelay;
+  const maxDelay = config.maxDelay;
+  
   const logger = loggers.git.child({ operation: 'push-retry' });
   
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      logger.info('git-push-attempt', `Git push attempt ${attempt}/${maxRetries}`, {
+      logger.info('git-push-attempt', `Git push attempt ${attempt}/${retries}`, {
         branchName, 
         repoPath,
         attempt 
@@ -213,26 +222,29 @@ export async function safeGitPushWithRetry(
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isLastAttempt = attempt === maxRetries;
+      const isLastAttempt = attempt === retries;
       
       if (isLastAttempt) {
         logger.error('git-push-failed', 'Git push failed after all retries', {
           branchName,
-          totalAttempts: maxRetries,
+          totalAttempts: retries,
           finalError: errorMessage
         });
-        throw new Error(`Git push failed after ${maxRetries} attempts: ${errorMessage}`);
+        throw new Error(`Git push failed after ${retries} attempts: ${errorMessage}`);
       } else {
-        const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff
-        logger.warn('git-push-retry', `Git push attempt ${attempt} failed, retrying in ${delay}ms`, {
+        // Calculate exponential backoff with max delay limit
+        const calculatedDelay = delay * Math.pow(2, attempt - 1);
+        const actualDelay = Math.min(calculatedDelay, maxDelay);
+        
+        logger.warn('git-push-retry', `Git push attempt ${attempt} failed, retrying in ${actualDelay}ms`, {
           branchName,
           attempt,
           error: errorMessage,
-          nextRetryIn: delay
+          nextRetryIn: actualDelay
         });
         
         // Wait before next attempt
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, actualDelay));
       }
     }
   }
@@ -245,9 +257,10 @@ export async function safeGitPushWithRetry(
  * Uses async file operations for better performance with large repositories.
  */
 export async function getRepositoryStructureAsync(repoPath: string): Promise<string> {
+  const config = getGitOperationsConfig();
   const logger = loggers.git.child({ operation: 'repo-structure-async' });
   
-  const MAX_CONTEXT_LENGTH = 8000; // ~2000 tokens at 4 chars per token
+  const MAX_CONTEXT_LENGTH = config.maxDelay || 8000; // Use maxDelay as context limit fallback
   const MAX_FILE_CONTENT_SIZE = 1000; // Max content size per file
   const MAX_FILES_PER_CATEGORY = 20; // Limit files to show per category
   

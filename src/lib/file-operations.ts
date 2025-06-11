@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { extractSearchReplaceBlocks, sanitizeFilePath } from "./ai-sanitizer";
+import { getFileOperationsConfig } from "./config";
 
 /**
  * Safe file operations for the codex system.
@@ -111,6 +112,7 @@ export function validateSearchReplaceBlock(
   replaceText: string,
   content: string
 ): SearchReplaceValidation {
+  const config = getFileOperationsConfig();
   const errors: string[] = [];
   const warnings: string[] = [];
   let securityScore = 100;
@@ -145,27 +147,34 @@ export function validateSearchReplaceBlock(
     { pattern: /import\s*\(\s*['"`][^'"`]*['"`]\s*\)/g, severity: 40, desc: "Dynamic import" },
     { pattern: /require\s*\(\s*['"`][^'"`]*['"`]\s*\)/g, severity: 40, desc: "Dynamic require" },
     { pattern: /fetch\s*\(|XMLHttpRequest/i, severity: 45, desc: "Network request" },
-    { pattern: /crypto\.|Math\.random/i, severity: 30, desc: "Cryptographic operation" }
+    { pattern: /crypto\.|Math\.random/i, severity: 30, desc: "Cryptographic operation" },
+    // Add custom dangerous patterns from config
+    ...config.customDangerousPatterns.map(p => ({ 
+      pattern: p.pattern, 
+      severity: p.severity, 
+      desc: p.description 
+    }))
   ];
 
   for (const { pattern, severity, desc } of dangerousPatterns) {
     if (pattern.test(searchText) || pattern.test(replaceText)) {
       const impact = severity > 80 ? 'critical' : severity > 60 ? 'high' : 'medium';
-      errors.push(`${impact.toUpperCase()} SECURITY RISK: ${desc} - Pattern: ${pattern.source}`);
+      const description = desc || 'Unknown security risk';
+      errors.push(`${impact.toUpperCase()} SECURITY RISK: ${description} - Pattern: ${pattern.source}`);
       securityScore = Math.min(securityScore, 100 - severity);
     }
   }
 
-  // Size and complexity analysis
+  // Size and complexity analysis using configurable limits
   const searchSize = searchText.length;
   const replaceSize = replaceText.length;
   const sizeDifference = Math.abs(replaceSize - searchSize);
 
-  if (replaceSize > 50000) {
-    errors.push("Replacement text exceeds safe size limit (50KB)");
+  if (replaceSize > config.maxSearchReplaceSize) {
+    errors.push(`Replacement text exceeds safe size limit (${config.maxSearchReplaceSize} bytes)`);
     securityScore -= 20;
-  } else if (replaceSize > 10000) {
-    warnings.push("Replacement text is very large (>10KB) - verify content carefully");
+  } else if (replaceSize > config.maxSearchReplaceSize / 5) {
+    warnings.push(`Replacement text is very large (>${config.maxSearchReplaceSize / 5} bytes) - verify content carefully`);
     securityScore -= 10;
   }
 
@@ -193,21 +202,26 @@ export function validateSearchReplaceBlock(
     securityScore -= 10;
   }
 
-  // Enhanced syntax validation for different file types
-  const fileExtension = filePath.split('.').pop()?.toLowerCase();
-  const syntaxCheck = performSyntaxValidation(searchText, replaceText, fileExtension || '');
-  
-  if (!syntaxCheck.isValid) {
-    syntaxValid = false;
-    errors.push(...syntaxCheck.errors);
-    warnings.push(...syntaxCheck.warnings);
-    securityScore -= 20;
+  // Enhanced syntax validation for different file types (if enabled)
+  if (config.enableSyntaxValidation) {
+    const fileExtension = filePath.split('.').pop()?.toLowerCase();
+    const syntaxCheck = performSyntaxValidation(searchText, replaceText, fileExtension || '');
+    
+    if (!syntaxCheck.isValid) {
+      syntaxValid = false;
+      errors.push(...syntaxCheck.errors);
+      warnings.push(...syntaxCheck.warnings);
+      securityScore -= 20;
+    }
   }
 
-  // Complexity assessment
-  const complexity = assessComplexity(searchText, replaceText, searchMatches);
-  if (complexity === 'high') {
-    securityScore -= 10;
+  // Complexity assessment (if enabled)
+  let complexity: 'low' | 'medium' | 'high' = 'low';
+  if (config.enableComplexityAnalysis) {
+    complexity = assessComplexity(searchText, replaceText, searchMatches);
+    if (complexity === 'high') {
+      securityScore -= 10;
+    }
   }
 
   // Content integrity validation
@@ -218,8 +232,18 @@ export function validateSearchReplaceBlock(
     securityScore -= integrityCheck.severityPenalty;
   }
 
+  // Apply strict mode checks if enabled
+  if (config.strictMode) {
+    if (securityScore < 80) {
+      errors.push("Strict mode: Security score too low for operation");
+    }
+    if (complexity === 'high') {
+      errors.push("Strict mode: High complexity operations not allowed");
+    }
+  }
+
   return {
-    isValid: errors.length === 0 && securityScore >= 50, // Require minimum security score
+    isValid: errors.length === 0 && securityScore >= config.minSecurityScore,
     errors,
     warnings,
     securityScore: Math.max(0, securityScore),
@@ -517,6 +541,8 @@ export function applySearchReplace(
   replaceText: string,
   repoPath: string
 ): boolean {
+  const config = getFileOperationsConfig();
+  
   const content = safeReadFile(filePath, repoPath);
   if (content === null) {
     logger.error("Failed to read file for search/replace operation", { filePath });
@@ -557,12 +583,28 @@ export function applySearchReplace(
     });
   }
 
-  // Enhanced security check - require high security score for complex operations
-  if (validation.complexity === 'high' && validation.securityScore < 80) {
+  // Enhanced security check using configurable threshold
+  if (validation.securityScore < config.minSecurityScore) {
+    logger.error("Security score below threshold - operation rejected", {
+      filePath,
+      securityScore: validation.securityScore,
+      minRequired: config.minSecurityScore,
+      complexity: validation.complexity
+    });
+    return false;
+  }
+  
+  // Enhanced security check for complex operations using configurable complexity limit
+  const maxComplexityForHighSecurity = config.maxComplexityForHighSecurity;
+  const complexityThreshold = maxComplexityForHighSecurity === 'low' ? 70 : 
+                               maxComplexityForHighSecurity === 'medium' ? 80 : 90;
+                               
+  if (validation.complexity === 'high' && validation.securityScore < complexityThreshold) {
     logger.error("High complexity operation with low security score rejected", {
       filePath,
       complexity: validation.complexity,
-      securityScore: validation.securityScore
+      securityScore: validation.securityScore,
+      requiredScore: complexityThreshold
     });
     return false;
   }
@@ -578,11 +620,14 @@ export function applySearchReplace(
     return false;
   }
   
-  // Create versioned backup before making changes
-  const backupPath = createVersionedBackup(filePath, repoPath);
-  if (!backupPath) {
-    logger.error("Failed to create backup - aborting operation", { filePath });
-    return false;
+  // Create versioned backup before making changes (if enabled)
+  let backupPath: string | null = null;
+  if (config.enableBackups) {
+    backupPath = createVersionedBackup(filePath, repoPath);
+    if (!backupPath) {
+      logger.error("Failed to create backup - aborting operation", { filePath });
+      return false;
+    }
   }
   
   try {
@@ -605,8 +650,10 @@ export function applySearchReplace(
         issues: integrityCheck.issues
       });
       
-      // Restore from backup
-      restoreFromBackup(backupPath, path.join(repoPath, filePath));
+      // Restore from backup if available
+      if (backupPath) {
+        restoreFromBackup(backupPath, path.join(repoPath, filePath));
+      }
       return false;
     }
     
@@ -615,8 +662,10 @@ export function applySearchReplace(
     
     if (!success) {
       logger.error("Failed to write modified content", { filePath });
-      // Restore from backup on write failure
-      restoreFromBackup(backupPath, path.join(repoPath, filePath));
+      // Restore from backup on write failure if available
+      if (backupPath) {
+        restoreFromBackup(backupPath, path.join(repoPath, filePath));
+      }
       return false;
     }
     
@@ -631,16 +680,18 @@ export function applySearchReplace(
       complexity: validation.complexity
     });
     
-    // Clean up backup after successful operation (keep it for a short time)
-    setTimeout(() => {
-      try {
-        if (require('fs').existsSync(backupPath)) {
-          require('fs').unlinkSync(backupPath);
+    // Clean up backup after successful operation using configurable TTL
+    if (backupPath && config.backupTTL > 0) {
+      setTimeout(() => {
+        try {
+          if (require('fs').existsSync(backupPath)) {
+            require('fs').unlinkSync(backupPath);
+          }
+        } catch (cleanupError) {
+          // Ignore cleanup errors
         }
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-    }, 60000); // Keep backup for 1 minute
+      }, config.backupTTL);
+    }
     
     return true;
     
@@ -652,7 +703,7 @@ export function applySearchReplace(
       stack: error instanceof Error ? error.stack : undefined
     });
     
-    // Restore from backup on any error
+    // Restore from backup on any error if available
     if (backupPath) {
       const restored = restoreFromBackup(backupPath, path.join(repoPath, filePath));
       logger.log("Backup restoration after error", { filePath, restored });
