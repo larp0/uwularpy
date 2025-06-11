@@ -8,6 +8,7 @@ import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositor
 import { generateCommitMessage, generateCodeChanges } from "./openai-operations";
 import { processSearchReplaceBlocks, validateSearchReplaceBlockStructure } from "./file-operations";
 
+
 /**
  * Result interface for code generation operations.
  * Distinguishes between successful code changes and error responses.
@@ -339,7 +340,7 @@ function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string 
     let optimizedReply = reply;
     
     // Enhanced search-replace block processing
-    optimizedReply = processSearchReplaceBlocks(optimizedReply, repoPath);
+    optimizedReply = processSearchReplaceBlocksLocal(optimizedReply, repoPath);
     
     // Process other code block types
     optimizedReply = processGenericCodeBlocks(optimizedReply);
@@ -361,16 +362,19 @@ function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string 
 /**
  * Process and validate search-replace blocks with enhanced security and structure checks.
  */
-function processSearchReplaceBlocks(reply: string, repoPath: string): string {
+function processSearchReplaceBlocksLocal(reply: string, repoPath: string): string {
   const searchReplaceRegex = /```search-replace\n([\s\S]*?)```/g;
   let processedReply = reply;
   let totalOffset = 0;
-  let match;
   
   // Reset regex state
   searchReplaceRegex.lastIndex = 0;
   
-  const matches = [...reply.matchAll(searchReplaceRegex)];
+  const matches = [];
+  let match;
+  while ((match = searchReplaceRegex.exec(reply)) !== null) {
+    matches.push(match);
+  }
   
   for (const match of matches) {
     const fullBlock = match[0];
@@ -378,7 +382,7 @@ function processSearchReplaceBlocks(reply: string, repoPath: string): string {
     const matchIndex = match.index!;
     
     // Comprehensive validation of the search-replace block
-    const validation = validateSearchReplaceBlockStructure(blockContent, repoPath);
+    const validation = validateSearchReplaceBlockStructureLocal(blockContent, repoPath);
     
     logger.log("Search-replace block validation", {
       blockIndex: matches.indexOf(match),
@@ -464,7 +468,11 @@ function processGenericCodeBlocks(reply: string): string {
   const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
   let processedReply = reply;
   
-  const codeBlocks = [...reply.matchAll(codeBlockRegex)];
+  const codeBlocks = [];
+  let match;
+  while ((match = codeBlockRegex.exec(reply)) !== null) {
+    codeBlocks.push(match);
+  }
   
   for (const match of codeBlocks) {
     const language = match[1] || 'text';
@@ -852,64 +860,7 @@ function validateFinalOutput(optimizedContent: string, originalContent: string):
   };
 }
 
-/**
- * Validate and optimize code blocks within AI responses.
- * @param reply - The AI response containing potential code blocks.
- * @param repoPath - Repository path for context validation.
- * @returns Optimized reply with validated code blocks.
- */
-function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string {
-  try {
-    // Find and validate search-replace blocks
-    const searchReplaceRegex = /```search-replace\n([\s\S]*?)```/g;
-    let optimizedReply = reply;
-    let match;
-    let offset = 0;
 
-    // Reset regex state
-    searchReplaceRegex.lastIndex = 0;
-
-    while ((match = searchReplaceRegex.exec(reply)) !== null) {
-      const fullBlock = match[0];
-      const blockContent = match[1];
-      
-      // Validate the search-replace block structure
-      const validation = validateSearchReplaceBlockStructure(blockContent, repoPath);
-      
-      if (!validation.isValid) {
-        logger.warn("Invalid search-replace block found", {
-          errors: validation.errors,
-          blockPreview: blockContent.substring(0, 100)
-        });
-        
-        // Replace invalid block with a comment explaining the issue
-        const errorComment = `<!-- Invalid search-replace block: ${validation.errors.join(', ')} -->`;
-        optimizedReply = optimizedReply.substring(0, match.index + offset) +
-                        errorComment +
-                        optimizedReply.substring(match.index + offset + fullBlock.length);
-        offset += errorComment.length - fullBlock.length;
-      } else if (validation.warnings.length > 0) {
-        logger.warn("Search-replace block has warnings", {
-          warnings: validation.warnings,
-          blockPreview: blockContent.substring(0, 100)
-        });
-      }
-      
-      // Reset regex lastIndex due to string modification
-      if (offset !== 0) {
-        searchReplaceRegex.lastIndex = 0;
-        break; // Restart the search to avoid index issues
-      }
-    }
-    
-    return optimizedReply;
-  } catch (error) {
-    logger.error("Error validating code blocks", {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return reply; // Return original on error
-  }
-}
 
 /**
  * Validate the structure of a search-replace block.
@@ -917,7 +868,7 @@ function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string 
  * @param repoPath - Repository path for file existence validation.
  * @returns Validation result with errors and warnings.
  */
-function validateSearchReplaceBlockStructure(
+function validateSearchReplaceBlockStructureLocal(
   blockContent: string, 
   repoPath: string
 ): { isValid: boolean; errors: string[]; warnings: string[] } {
