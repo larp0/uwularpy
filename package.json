@@ -1,7 +1,7 @@
 {
   "name": "uwularpy",
   "version": "1.0.2",
-  "description": "A Next.js application that uwuifies markdown files in GitHub repositories when mentioned in issue comments",
+  "description": "A powerful Next.js GitHub App that transforms repositories with AI: automatic markdown uwuification, comprehensive code reviews, and intelligent development planning",
   "scripts": {
     "dev": "next dev",
     "build": "npm run lint:check && npm run type-check && NEXT_DISABLE_ESLINT=1 next build",
@@ -47,5 +47,27 @@
     "ts-jest": "^29.3.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/larp0/uwularpy.git"
+  },
+  "homepage": "https://github.com/larp0/uwularpy",
+  "bugs": {
+    "url": "https://github.com/larp0/uwularpy/issues"
+  },
+  "keywords": [
+    "github",
+    "webhook",
+    "uwu",
+    "markdown",
+    "ai",
+    "code-review",
+    "nextjs",
+    "typescript",
+    "automation",
+    "development-planning"
+  ],
+  "author": "larp0",
+  "license": "MIT"
 }
