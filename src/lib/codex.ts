@@ -292,17 +292,22 @@ async function runCodexCLI(prompt: string, repositoryContext: string, repoPath: 
 
     // Prepare the enhanced prompt with repository context
     const enhancedPrompt = repositoryContext 
-      ? `REPOSITORY CONTEXT:\n${repositoryContext}\n\nUSER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`
-      : `USER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes using SEARCH/REPLACE blocks.`;
+      ? `REPOSITORY CONTEXT:\n${repositoryContext}\n\nUSER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes.`
+      : `USER REQUEST:\n${prompt}\n\nPlease generate the necessary code changes.`;
 
-    // Execute the @openai/codex CLI tool
-    const command = 'npx @openai/codex --approval-mode full-auto';
+    // Execute the @openai/codex CLI tool with correct usage
+    // Use exec subcommand for non-interactive mode, --full-auto for automatic execution
+    // Pass --cd to specify working directory, and prompt as positional argument
+    const command = [
+      'npx', '@openai/codex', 'exec', 
+      '--full-auto',
+      '--cd', repoPath,
+      enhancedPrompt
+    ];
     
-    logger.log("Executing @openai/codex CLI", { command });
+    logger.log("Executing @openai/codex CLI", { command: command.join(' ') });
     
-    const response = execSync(command, {
-      cwd: repoPath,
-      input: enhancedPrompt,
+    const response = execSync(command.join(' '), {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'], // stdin, stdout, stderr
       env: {
@@ -604,7 +609,7 @@ function optimizeSearchReplaceBlock(blockContent: string, validation: any): stri
 function processGenericCodeBlocks(reply: string): string {
   // Match various code block formats
   const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-  let processedReply = reply;
+  const processedReply = reply;
   
   const codeBlocks = [];
   let match;
