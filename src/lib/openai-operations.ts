@@ -102,6 +102,8 @@ export async function generateAIResponse(
     // o3 reasoning models use different parameter names and don't support temperature
     if (isReasoningModel) {
       requestParams.max_completion_tokens = config.maxTokens;
+      requestParams.reasoning_effort = "medium";
+      requestParams.response_format = { "type": "text" };
       // o3 models don't support temperature parameter
     } else {
       requestParams.max_tokens = config.maxTokens;
