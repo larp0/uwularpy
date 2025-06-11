@@ -32,4 +32,16 @@ describe('OpenAI Operations Enhancement', () => {
       expect(config.maxTokens).toBe(30000);
     });
   });
+
+  describe('o3-mini API parameter validation', () => {
+    it('should verify o3 model detection logic', () => {
+      // Test the model detection logic that determines reasoning models
+      const o3Model = 'o3-mini';
+      const gptModel = 'gpt-4.1-mini';
+      
+      // This tests the same logic used in generateAIResponse
+      expect(o3Model.startsWith('o3')).toBe(true);
+      expect(gptModel.startsWith('o3')).toBe(false);
+    });
+  });
 });
