@@ -4,12 +4,14 @@ A Next.js application that uwuifies markdown files, performs code reviews, and g
 
 ## Features
 
-- **Webhook Handler**: Processes GitHub webhook events for issue comments
-- **Automatic UwUification**: Transforms markdown content while preserving code blocks
-- **Code Review**: Performs comprehensive code reviews on pull requests using AI
-- **Development Planning**: Generates comprehensive development plans with milestones and GitHub issues
-- **Immediate Feedback**: Replies to mentions with instant status updates
-- **Pull Request Creation**: Creates PRs with changes for review
+- 🤖 **Webhook Handler**: Processes GitHub webhook events for issue comments automatically
+- ✨ **Automatic UwUification**: Transforms markdown content while preserving code blocks and formatting
+- 🔍 **AI Code Review**: Performs comprehensive code reviews on pull requests using advanced AI analysis
+- 📋 **Development Planning**: Generates comprehensive development plans with milestones and GitHub issues
+- ⚡ **Immediate Feedback**: Replies to mentions with instant status updates and progress tracking
+- 🔄 **Pull Request Creation**: Creates PRs with changes for easy review and merging
+- 🎯 **Custom AI Tasks**: Processes custom instructions and requests using AI-powered analysis
+- 📊 **Repository Analysis**: Complete codebase structure and metadata review capabilities
 
 ## Tech Stack
 
@@ -64,6 +66,26 @@ A Next.js application that uwuifies markdown files, performs code reviews, and g
    - `@uwularpy <custom message>` - Process repository with custom instructions using AI
 4. The bot will immediately reply and process your request
 
+### Command Examples
+
+Here are some practical examples of how to use UwUlarpy:
+
+```bash
+# Basic uwuification of all markdown files
+@uwularpy
+
+# Request a code review on a pull request
+@uwularpy r
+
+# Generate a development plan
+@uwularpy plan
+
+# Custom AI-powered request
+@uwularpy please help me improve the documentation structure
+@uwularpy analyze the security of this codebase
+@uwularpy suggest improvements for better performance
+```
+
 ### Plan Command Details
 
 The `@uwularpy plan` command creates a comprehensive development analysis including:
@@ -90,9 +112,48 @@ This application can be deployed to any platform that supports Next.js:
 - **Netlify**: Great alternative with similar features
 - **Self-hosted**: For complete control over your environment
 
+## Contributing
+
+We welcome contributions to UwUlarpy! Here's how you can help:
+
+### Development Setup
+
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/uwularpy.git`
+3. Install dependencies: `npm install`
+4. Create a feature branch: `git checkout -b feature/your-feature-name`
+5. Make your changes and test them
+6. Run quality checks: `npm run quality-check`
+7. Commit your changes: `git commit -m "feat: your feature description"`
+8. Push to your fork: `git push origin feature/your-feature-name`
+9. Create a Pull Request
+
+### Guidelines
+
+- Follow TypeScript best practices and existing code style
+- Add tests for new functionality
+- Update documentation as needed
+- Ensure all CI checks pass
+- Keep commits focused and write clear commit messages
+
+### Reporting Issues
+
+- Use GitHub Issues to report bugs or request features
+- Provide clear reproduction steps for bugs
+- Include relevant system information and error messages
+
 ## Documentation
 
 For detailed documentation, see [DOCUMENTATION.md](DOCUMENTATION.md)
+
+## Support
+
+Need help or have questions? Here are your options:
+
+- 📚 **Documentation**: Check [DOCUMENTATION.md](DOCUMENTATION.md) for comprehensive guides
+- 🐛 **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/larp0/uwularpy/issues)
+- 💬 **Discussions**: Join community discussions on GitHub Discussions
+- 📧 **Contact**: Reach out to the maintainers for urgent matters
 
 ## License
 
