@@ -5,7 +5,7 @@ import * as path from "path";
 import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
 import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure, getRepositoryStructureAsync, safeGitCommand, safeGitPushWithRetry } from "./git-utils";
-import { generateCommitMessage } from "./openai-operations";
+import { generateCommitMessage, generateCodeChanges } from "./openai-operations";
 import { processSearchReplaceBlocks } from "./file-operations";
 
 // Constants for regex patterns and delimiters
@@ -276,12 +276,16 @@ export async function codexRepository(
 }
 
 /**
- * Run the @openai/codex CLI tool to process code generation requests.
+ * DEPRECATED: Run the @openai/codex CLI tool to process code generation requests.
+ * This function is no longer used as it was causing failures.
+ * Use generateCodeChanges from openai-operations.ts instead.
+ * 
  * @param prompt - The initial prompt for code generation.
  * @param repositoryContext - Repository context information.
  * @param repoPath - Path to the repository directory.
  * @returns Generated response from the CLI tool.
  */
+/*
 async function runCodexCLI(prompt: string, repositoryContext: string, repoPath: string): Promise<string> {
   try {
     logger.log("Running @openai/codex CLI tool", { 
@@ -328,6 +332,7 @@ async function runCodexCLI(prompt: string, repositoryContext: string, repoPath: 
     throw new Error(`@openai/codex CLI failed: ${errorMessage}`);
   }
 }
+*/
 
 /**
  * Run the modern OpenAI API to process the repository.
@@ -360,8 +365,8 @@ async function runModernCodeGeneration(prompt: string, repoPath: string): Promis
       }
     }
     
-    // Generate code changes using @openai/codex CLI tool
-    const response = await runCodexCLI(prompt, repositoryContext, repoPath);
+    // Generate code changes using OpenAI API directly
+    const response = await generateCodeChanges(prompt, repositoryContext);
     
     logger.log("Code generation completed", { 
       responseLength: response.length,
