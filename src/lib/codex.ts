@@ -42,9 +42,17 @@ const REGEX_PATTERNS = {
   PASSWD_ACCESS: /passwd|shadow/i,
   PROCESS_EXIT: /process\.exit/i,
   
+  // Dangerous command removal patterns
+  DANGEROUS_RM_COMMAND: /rm\s+-rf[^\n]*/gi,
+  DANGEROUS_SUDO_RM: /sudo\s+rm[^\n]*/gi,
+  DANGEROUS_EVAL_COMMAND: /eval\s*\([^)]*\)/gi,
+  DANGEROUS_EXEC_COMMAND: /exec\s*\([^)]*\)/gi,
+  
   // Formatting patterns
   HEADING_SPACING: /^(#+)([^\s#])/gm,
   LIST_SPACING: /^(\s*[-*+])\s*([^\s])/gm,
+  CODE_BLOCK_LANG: /^```(\w+)?\n/gm,
+  JS_TS_CODE_BLOCKS: /```(typescript|javascript|ts|js|tsx|jsx)\n([\s\S]*?)```/g,
   
   // Delimiters and markers
   SEARCH_MARKER: /^<<<<<<< SEARCH$/gm,
@@ -514,6 +522,7 @@ function optimizeSearchReplaceBlocks(reply: string, repoPath: string): string {
           warnings: validation.warnings,
           blockPreview: blockContent.substring(0, 100) + (blockContent.length > 100 ? '...' : '')
         });
+      }
     }
   }
   
@@ -758,10 +767,10 @@ function applySafetyFilters(content: string, issues: string[]): string {
   
   // Remove or comment out dangerous command patterns
   const dangerousCommands = [
-    /rm\s+-rf[^\n]*/gi,
-    /sudo\s+rm[^\n]*/gi,
-    /eval\s*\([^)]*\)/gi,
-    /exec\s*\([^)]*\)/gi
+    REGEX_PATTERNS.DANGEROUS_RM_COMMAND,
+    REGEX_PATTERNS.DANGEROUS_SUDO_RM,
+    REGEX_PATTERNS.DANGEROUS_EVAL_COMMAND,
+    REGEX_PATTERNS.DANGEROUS_EXEC_COMMAND
   ];
   
   for (const pattern of dangerousCommands) {
@@ -796,7 +805,7 @@ function optimizeContentStructure(content: string, repoPath: string): string {
  */
 function normalizeHeadings(content: string): string {
   // Ensure there's space after heading markers
-  return content.replace(/^(#+)([^\s#])/gm, '$1 $2');
+  return content.replace(REGEX_PATTERNS.HEADING_SPACING, '$1 $2');
 }
 
 /**
@@ -804,7 +813,7 @@ function normalizeHeadings(content: string): string {
  */
 function optimizeCodeBlockFormatting(content: string): string {
   // Ensure code blocks have proper language tags
-  return content.replace(/^```(\w+)?\n/gm, (match, lang) => {
+  return content.replace(REGEX_PATTERNS.CODE_BLOCK_LANG, (match, lang) => {
     if (!lang) {
       return '```text\n';
     }
@@ -817,7 +826,7 @@ function optimizeCodeBlockFormatting(content: string): string {
  */
 function normalizeListFormatting(content: string): string {
   // Ensure consistent list item spacing
-  return content.replace(/^(\s*[-*+])\s*([^\s])/gm, '$1 $2');
+  return content.replace(REGEX_PATTERNS.LIST_SPACING, '$1 $2');
 }
 
 /**
@@ -843,7 +852,7 @@ function prepareForASTOptimizations(content: string): string {
   // Mark code blocks that could benefit from AST analysis
   const astCandidates = ['typescript', 'javascript', 'ts', 'js', 'tsx', 'jsx'];
   
-  return content.replace(/```(typescript|javascript|ts|js|tsx|jsx)\n([\s\S]*?)```/g, 
+  return content.replace(REGEX_PATTERNS.JS_TS_CODE_BLOCKS, 
     (match, lang, code) => {
       // Add metadata for future AST processing
       return `<!-- AST-READY: ${lang} -->\n${match}\n<!-- /AST-READY -->`;
