@@ -400,6 +400,35 @@ We enthusiastically welcome contributions to UwUlarpy! Whether you're fixing bug
 
 ### Development Workflow
 
+
+```mermaid
+flowchart TD
+  A["Next.js Frontend"] --> B["API Routes"]
+  B --> C["GitHub Webhook Handler"]
+  B --> D["AI Integration Module"]
+  C --> E["GitHub API Client (Octokit)"]
+  D --> F["OpenAI API (ChatGPT)"]
+  E --> G["Repository Analysis"]
+  E --> H["Issue & PR Management"]
+  G --> I["UWUification Engine"]
+  G --> J["Code Review Engine"]
+  G --> K["Development Planning Engine"]
+  H --> L["Milestone & Issue Creator"]
+  H --> M["Pull Request Creator"]
+  
+  subgraph CONFIG["Configuration"]
+    N["Environment Variables"]
+    O["GitHub App Credentials"]
+  end
+  CONFIG --> B
+  CONFIG --> D
+  
+  subgraph SUPPORT["Support & Contributing"]
+    P["Issue Templates"]
+    Q["Documentation"]
+  end
+```
+
 #### 1. Initial Setup
 ```bash
 # Fork the repository on GitHub
