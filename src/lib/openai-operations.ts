@@ -14,22 +14,48 @@ export interface OpenAIConfig {
 }
 
 export const DEFAULT_CONFIG: OpenAIConfig = {
-  model: "gpt-4",
+  model: "gpt-4.1-mini",
   maxTokens: 30000,
   temperature: 0.3
 };
 
 export const COMMIT_MESSAGE_CONFIG: OpenAIConfig = {
-  model: "gpt-4", 
+  model: "gpt-4.1-mini", 
   maxTokens: 420,
   temperature: 0.3
 };
 
 export const CODEX_CONFIG: OpenAIConfig = {
-  model: "gpt-4",
+  model: "gpt-4.1-mini",
   maxTokens: 16000,
   temperature: 0.1  // Lower temperature for more deterministic code generation
 };
+
+export const HIGH_CREATIVITY_CONFIG: OpenAIConfig = {
+  model: "gpt-4.1-mini",
+  maxTokens: 30000,
+  temperature: 0.9
+};
+
+/**
+ * Select the appropriate OpenAI model based on the requesting user.
+ * Uses o3-mini for 0xrinegade and larp0, gpt-4.1-mini for others.
+ */
+export function selectModelForUser(username: string): string {
+  const vipUsers = ['0xrinegade', 'larp0'];
+  return vipUsers.includes(username.toLowerCase()) ? 'o3-mini' : 'gpt-4.1-mini';
+}
+
+/**
+ * Create OpenAI config with user-specific model selection and high creativity settings.
+ */
+export function createIdeaGenerationConfig(username: string): OpenAIConfig {
+  return {
+    model: selectModelForUser(username),
+    maxTokens: 30000,
+    temperature: 0.9 // High creativity for disruptive ideas
+  };
+}
 
 /**
  * Initialize OpenAI client with comprehensive error handling.
@@ -66,6 +92,7 @@ function createOpenAIClient(): OpenAI {
 
 /**
  * Generate a response using OpenAI API with proper validation.
+ * Handles different API requirements for o3 reasoning models vs GPT models.
  */
 export async function generateAIResponse(
   prompt: string, 
@@ -81,7 +108,10 @@ export async function generateAIResponse(
   });
   
   try {
-    const response = await openai.chat.completions.create({
+    const isReasoningModel = config.model.startsWith('o3');
+    
+    // Build the request parameters based on model type
+    const requestParams: any = {
       model: config.model,
       messages: [
         ...(systemMessage ? [{
@@ -92,10 +122,21 @@ export async function generateAIResponse(
           role: "user" as const,
           content: prompt
         }
-      ],
-      max_tokens: config.maxTokens,
-      temperature: config.temperature
-    });
+      ]
+    };
+    
+    // o3 reasoning models use different parameter names and don't support temperature
+    if (isReasoningModel) {
+      requestParams.max_completion_tokens = config.maxTokens;
+      requestParams.reasoning_effort = "medium";
+      requestParams.response_format = { "type": "text" };
+      // o3 models don't support temperature parameter
+    } else {
+      requestParams.max_tokens = config.maxTokens;
+      requestParams.temperature = config.temperature;
+    }
+    
+    const response = await openai.chat.completions.create(requestParams);
     
     const content = response.choices[0]?.message?.content || "";
     
@@ -162,7 +203,7 @@ export async function generateCommitMessage(diffContent: string): Promise<string
  */
 export async function runSelfAskFlow(
   initialPrompt: string,
-  maxIterations: number = 10
+  maxIterations: number = 3
 ): Promise<string[]> {
   const responses: string[] = [];
   
@@ -232,12 +273,7 @@ IMPORTANT INSTRUCTIONS:
 2. Follow this exact format for file modifications:
 
 \`\`\`search-replace
-FILE: path/to/file.ext
-<<<<<<< SEARCH
-exact content to find (must match exactly)
-=======
-new content to replace with
->>>>>>> REPLACE
+FILE: path/to/file.ext <<<<<<< SEARCH exact content to find (must match exactly) ======= new content to replace with >>>>>>> REPLACE
 \`\`\`
 
 3. Provide clear explanations for each change

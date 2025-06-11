@@ -18,6 +18,7 @@ import {
   PLAN_REFINEMENT_TEMPLATE,
   PLAN_CANCELLED_TEMPLATE
 } from "../templates/issue-templates";
+import { createIdeaGenerationConfig, selectModelForUser, generateAIResponse } from "../lib/openai-operations";
 
 // Define interfaces for GitHub objects to improve type safety
 interface GitHubMilestone {
@@ -204,7 +205,7 @@ function extractUserQueryFromMessage(message: string): string {
 // Export the plan implementation function
 export async function runPlanTask(payload: GitHubContext, ctx: any) {
   logger.info("Starting repository plan task - creating milestone only", { payload });
-  const { owner, repo, issueNumber, installationId } = payload;
+  const { owner, repo, issueNumber, installationId, requester } = payload;
 
   // Rate limiting for expensive plan operations
   const rateLimitKey = `plan-creation-${owner}-${repo}`;
@@ -219,7 +220,7 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     
     // Extract user query from the message if available
     const userQuery = extractUserQueryFromMessage(payload.message || '');
-    logger.info("Extracted user query", { userQuery: userQuery || 'none' });
+    logger.info("Extracted user query", { userQuery: userQuery || 'none', requester });
     
     // Post an immediate reply comment
     await postReplyComment(octokit, owner, repo, issueNumber);
@@ -231,7 +232,7 @@ export async function runPlanTask(payload: GitHubContext, ctx: any) {
     
     // Phase 2: Comprehensive Analysis
     logger.info("Phase 2: Starting comprehensive analysis");
-    const analysis = await performComprehensiveAnalysis(repositoryContent, userQuery);
+    const analysis = await performComprehensiveAnalysis(repositoryContent, userQuery, requester);
     
     // Phase 3: Create GitHub Milestone ONLY
     logger.info("Phase 3: Creating GitHub milestone");
@@ -483,12 +484,115 @@ ${commits.map((commit: any) => `- ${commit.sha.slice(0, 7)}: ${commit.commit.mes
   return truncateContent(summary, maxContentLength);
 }
 
+// Helper function for iterative refinement of innovation ideas
+async function performIterativeRefinement(
+  initialAnalysis: PlanAnalysis, 
+  selectedModel: string, 
+  ideaConfig: any, 
+  config: any
+): Promise<PlanAnalysis> {
+  logger.info("Starting iterative refinement of innovation ideas");
+  
+  const refinementRounds = 3;
+  let currentAnalysis = { ...initialAnalysis };
+  
+  for (let round = 1; round <= refinementRounds; round++) {
+    logger.info(`Iterative refinement round ${round}/${refinementRounds}`);
+    
+    const refinementPrompt = `You are an innovation expert tasked with expanding and improving existing ideas. 
+
+CURRENT IDEAS (${currentAnalysis.innovationIdeas.length} total):
+${currentAnalysis.innovationIdeas.map((idea, i) => `${i + 1}. ${idea}`).join('\n')}
+
+Your task for Round ${round}:
+1. **EXPAND**: Add 2-3 NEW disruptive innovation ideas that build on or complement the existing ones
+2. **FAST**: Ensure ideas are relevant to the project roadmap and fast to implement (1h - 24h max)
+3. **ESCALATE CREATIVITY**: Each new idea should be bolder and more unconventional than typical suggestions
+4. **CHALLENGE ASSUMPTIONS**: Think about impossible-seeming concepts that could become reality
+5. **REVENUE FOCUSED**: Ideas must be focused on creating new revenue channel or enhancing current ones, no buzzword fancy ai slop
+
+Return ONLY a JSON array of NEW innovation ideas (don't repeat existing ones):
+{
+  "newInnovationIdeas": [
+    "Revolutionary concept 1 that pushes boundaries...",
+    "Disruptive integration 2 that creates new market...",
+    "Bold architectural innovation 3 that enables impossible scale...",
+    "... continue with 20-30 more creative, game-changing ideas"
+  ]
+}
+
+Be UNHINGED in creativity - think bigger, bolder, more disruptive than normal AI responses.`;
+
+    try {
+      // Create config with slightly higher creativity for refinement
+      const refinementConfig = {
+        model: selectedModel,
+        maxTokens: ideaConfig.maxTokens,
+        temperature: Math.min(ideaConfig.temperature + 0.1, 1.0) // Slightly higher creativity for refinement
+      };
+
+      const content = await generateAIResponse(
+        refinementPrompt,
+        "You are a creative innovation expert who generates disruptive, unconventional ideas.",
+        refinementConfig
+      );
+
+      if (!content) {
+        logger.warn(`No content received for refinement round ${round}, continuing`);
+        continue;
+      }
+
+        // Parse the new ideas
+        try {
+          const cleanedText = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          const refinementResult = JSON.parse(cleanedText);
+          
+          if (refinementResult.newInnovationIdeas && Array.isArray(refinementResult.newInnovationIdeas)) {
+            const beforeCount = currentAnalysis.innovationIdeas.length;
+            currentAnalysis.innovationIdeas = [
+              ...currentAnalysis.innovationIdeas,
+              ...refinementResult.newInnovationIdeas
+            ];
+            logger.info(`Refinement round ${round} added ${refinementResult.newInnovationIdeas.length} new ideas (${beforeCount} -> ${currentAnalysis.innovationIdeas.length})`);
+          } else {
+            logger.warn(`Invalid refinement result structure for round ${round}`);
+          }
+        } catch (parseError) {
+          logger.warn(`Failed to parse refinement result for round ${round}`, {
+            error: parseError instanceof Error ? parseError.message : 'Unknown error'
+          });
+        }
+
+    } catch (error) {
+      logger.warn(`Refinement round ${round} failed`, {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      // Continue with next round or finish with what we have
+    }
+
+    // Small delay between rounds to respect rate limits
+    if (round < refinementRounds) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  return currentAnalysis;
+}
+
 // Phase 2: Comprehensive Analysis using LLM with enhanced security and reliability
-async function performComprehensiveAnalysis(repositoryContent: string, userQuery?: string): Promise<PlanAnalysis> {
-  logger.info("Starting LLM-powered comprehensive analysis");
+async function performComprehensiveAnalysis(repositoryContent: string, userQuery?: string, requester?: string): Promise<PlanAnalysis> {
+  logger.info("Starting LLM-powered comprehensive analysis", { requester });
   
   const config = getPlanConfig();
+  const selectedModel = selectModelForUser(requester || 'anonymous');
+  const ideaConfig = createIdeaGenerationConfig(requester || 'anonymous');
   
+  logger.info("Model selection for user", { 
+    requester, 
+    selectedModel, 
+    temperature: ideaConfig.temperature 
+  });
+
   const systemPrompt = `You are a seasoned Engineering Manager and Technical Architect with 15+ years of experience leading successful software delivery. Apply proven project management methodologies, realistic estimation practices, and critical business thinking to analyze this repository.
 
 🎯 MANAGEMENT FRAMEWORK:
@@ -522,12 +626,28 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
 - Missing testing/monitoring creating blind spots
 - Outdated dependencies with known vulnerabilities
 
-🎨 INNOVATION CRITERIA:
+🎨 INNOVATION CRITERIA - GENERATE AT LEAST 5 MORE IDEAS THAN USUAL:
+- Revenue, revenue, revenue
 - Market differentiation potential
-- User experience enhancement
+- User experience enhancement  
 - Developer productivity gains
 - Revenue generation opportunities
 - Competitive advantage creation
+- DISRUPTIVE and UNCONVENTIONAL thinking - avoid "sheep AI innovator" ideas
+- BOLD concepts that challenge industry norms
+- UNHINGED creativity that pushes boundaries
+- Consider ideas that seem impossible but could revolutionize the space
+
+**CRITICAL: For innovation ideas, generate AT LEAST 5 distinct ideas covering:**
+- Revolutionary feature concepts that don't exist yet
+- Completely new business models enabled by this technology
+- Unconventional user interaction paradigms
+- Bold architectural innovations
+- Creative monetization strategies
+- Experimental user experience concepts
+- Cutting-edge technical implementations
+- Industry-disrupting workflows
+- Next-generation collaboration models
 
 Return analysis with realistic timelines, clear dependencies, and honest assessment of risks:
 
@@ -546,12 +666,15 @@ Return analysis with realistic timelines, clear dependencies, and honest assessm
     "Code quality issue [Size: S-M, Priority: Could] - Long-term maintenance burden"
   ],
   "innovationIdeas": [
-    "Game-changing feature [Size: L-XL, Priority: Could, Market Impact: High] - Competitive advantage gained",
-    "UX enhancement [Size: M, Priority: Should, User Impact: Medium] - How this improves retention"
+    "GENERATE MANY MORE IDEAS HERE - minimum 5 creative, disruptive concepts",
+    "Breakthrough integration with emerging tech that creates new market category",
+    "Disruptive business model that challenges industry assumptions",
+    "Bold architectural innovation that enables impossible scale",
+    "... continue with at least 10+ more creative, boundary-pushing ideas"
   ]
 }
 
-Be brutally honest about effort, realistic about timelines, and crystal clear about business justification. If something looks easy but you know it's not, call it out. If a feature sounds cool but has questionable ROI, say so.`;
+Be brutally honest about effort, realistic about timelines, and crystal clear about business justification. Be UNHINGED and REVENUE-focused with innovation ideas - think bigger, bolder, more disruptive than normal AI responses.`;
 
   // Truncate repository content to prevent token limits
   const truncatedContent = truncateContent(repositoryContent, config.maxContentLength);
@@ -563,86 +686,12 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
   }
 
   try {
-    // Validate OpenAI API key without logging it
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey || typeof openaiApiKey !== 'string') {
-      logger.error("OpenAI API key not found or invalid in environment variables");
-      throw new Error("OpenAI API key not configured");
-    }
-
-    // Perform OpenAI API call with retries
-    const analysisText = await retryWithBackoff(
-      async () => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), config.openaiTimeout);
-
-        try {
-          const response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${openaiApiKey}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              model: "gpt-4.1-mini",
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt }
-              ],
-              max_tokens: 32_768,
-              temperature: 0.7
-            }),
-            signal: controller.signal
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unable to read error response');
-            
-            // Log error without exposing sensitive information
-            logger.error("OpenAI API request failed", { 
-              status: response.status, 
-              statusText: response.statusText,
-              hasErrorText: !!errorText,
-              // Don't log the actual error text as it might contain sensitive info
-              contentLength: userPrompt.length
-            });
-            
-            if (response.status === 429) {
-              throw new Error("Rate limit exceeded - will retry");
-            } else if (response.status >= 500) {
-              throw new Error("Server error - will retry");
-            } else {
-              throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
-            }
-          }
-
-          const data = await response.json();
-          const content = data.choices?.[0]?.message?.content;
-
-          if (!content) {
-            logger.error("No analysis content received from OpenAI", { 
-              hasChoices: !!data.choices,
-              choicesLength: data.choices?.length || 0
-            });
-            throw new Error("No analysis content received from OpenAI");
-          }
-
-          return content;
-          
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      },
-      config.retryAttempts,
-      config.retryDelay,
-      "OpenAI API call"
-    );
+    // Perform OpenAI API call with proper o3-mini support
+    const analysisText = await generateAIResponse(userPrompt, systemPrompt, ideaConfig);
 
     logger.info("Received analysis from OpenAI", { 
       contentLength: analysisText.length,
-      modelUsed: "gpt-4.1-mini"
+      modelUsed: selectedModel
     });
 
     // Parse JSON response with error handling
@@ -677,7 +726,17 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
       }
     });
 
-    logger.info("Analysis parsing completed successfully", {
+    logger.info("Initial analysis parsing completed successfully", {
+      missingComponents: analysis.missingComponents.length,
+      criticalFixes: analysis.criticalFixes.length,
+      requiredImprovements: analysis.requiredImprovements.length,
+      innovationIdeas: analysis.innovationIdeas.length
+    });
+
+    // ITERATIVE REFINEMENT: Enhance innovation ideas through 2-3 refinement rounds
+    analysis = await performIterativeRefinement(analysis, selectedModel, ideaConfig, config);
+
+    logger.info("Final analysis after iterative refinement", {
       missingComponents: analysis.missingComponents.length,
       criticalFixes: analysis.criticalFixes.length,
       requiredImprovements: analysis.requiredImprovements.length,
