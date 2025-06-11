@@ -494,7 +494,7 @@ async function performIterativeRefinement(
   logger.info("Starting iterative refinement of innovation ideas");
   
   const refinementRounds = 3;
-  let currentAnalysis = { ...initialAnalysis };
+  const currentAnalysis = { ...initialAnalysis };
   
   for (let round = 1; round <= refinementRounds; round++) {
     logger.info(`Iterative refinement round ${round}/${refinementRounds}`);
