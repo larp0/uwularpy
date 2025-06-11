@@ -6,8 +6,100 @@ import { logger } from "@trigger.dev/sdk/v3";
 import { createAppAuth } from "@octokit/auth-app";
 import { safeGitCommit, hasStageChanges, getStagedDiff, setGitUser, getRepositoryStructure, getRepositoryStructureAsync, safeGitCommand, safeGitPushWithRetry } from "./git-utils";
 import { generateCommitMessage, generateCodeChanges } from "./openai-operations";
-import { processSearchReplaceBlocks, validateSearchReplaceBlockStructure } from "./file-operations";
+import { processSearchReplaceBlocks } from "./file-operations";
 
+// Constants for regex patterns and delimiters
+const REGEX_PATTERNS = {
+  // Search/Replace block patterns
+  SEARCH_REPLACE_BLOCK: /```search-replace\n([\s\S]*?)```/g,
+  SEARCH_REPLACE_PAIRS: /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g,
+  
+  // File and code block patterns
+  FILE_PATH: /FILE:\s*(.*)/,
+  FILE_DECLARATION: /^FILE:\s*(.*)$/gm,
+  CODE_BLOCK: /```(\w+)?\n([\s\S]*?)```/g,
+  CODE_MARKERS: /```/g,
+  
+  // Text normalization patterns
+  CARRIAGE_RETURN: /\r\n/g,
+  MAC_RETURN: /\r/g,
+  EXCESSIVE_NEWLINES: /\n{4,}/g,
+  MULTIPLE_NEWLINES: /\n{3,}/g,
+  TRAILING_WHITESPACE: /[ \t]+$/gm,
+  UNICODE_SPACES: /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g,
+  ZERO_WIDTH_CHARS: /[\u200B-\u200D\uFEFF]/g,
+  
+  // Code structure patterns
+  OPEN_BRACES: /{/g,
+  CLOSE_BRACES: /}/g,
+  
+  // Security patterns
+  EVAL_USAGE: /eval\s*\(/i,
+  EXEC_USAGE: /exec\s*\(/i,
+  SYSTEM_USAGE: /system\s*\(/i,
+  DANGEROUS_RM: /rm\s+-rf/i,
+  SUDO_USAGE: /sudo\s+/i,
+  PASSWD_ACCESS: /passwd|shadow/i,
+  PROCESS_EXIT: /process\.exit/i,
+  
+  // Formatting patterns
+  HEADING_SPACING: /^(#+)([^\s#])/gm,
+  LIST_SPACING: /^(\s*[-*+])\s*([^\s])/gm,
+  
+  // Delimiters and markers
+  SEARCH_MARKER: /^<<<<<<< SEARCH$/gm,
+  SEPARATOR_MARKER: /^=======$/gm,
+  REPLACE_MARKER: /^>>>>>>> REPLACE$/gm,
+  
+  // Protocol patterns
+  HTTP_PROTOCOL: /^https?:\/\//,
+  NEWLINE_ESCAPE: /\\n/g
+} as const;
+
+const DANGEROUS_PATTERNS = [
+  { pattern: REGEX_PATTERNS.EVAL_USAGE, desc: "eval() usage detected" },
+  { pattern: REGEX_PATTERNS.EXEC_USAGE, desc: "exec() usage detected" },
+  { pattern: REGEX_PATTERNS.SYSTEM_USAGE, desc: "system() usage detected" },
+  { pattern: REGEX_PATTERNS.DANGEROUS_RM, desc: "Dangerous file deletion command" },
+  { pattern: REGEX_PATTERNS.SUDO_USAGE, desc: "Privilege escalation command" }
+] as const;
+
+/**
+ * Helper class for managing string replacements with automatic offset tracking.
+ */
+class StringPatcher {
+  private content: string;
+  private offset: number = 0;
+
+  constructor(content: string) {
+    this.content = content;
+  }
+
+  /**
+   * Replace a section of the string and automatically track offset changes.
+   */
+  replaceAt(index: number, length: number, replacement: string): void {
+    const adjustedIndex = index + this.offset;
+    this.content = this.content.substring(0, adjustedIndex) +
+                   replacement +
+                   this.content.substring(adjustedIndex + length);
+    this.offset += replacement.length - length;
+  }
+
+  /**
+   * Get the current content with all patches applied.
+   */
+  getContent(): string {
+    return this.content;
+  }
+
+  /**
+   * Get the current offset value.
+   */
+  getOffset(): number {
+    return this.offset;
+  }
+}
 
 /**
  * Result interface for code generation operations.
@@ -53,13 +145,13 @@ export async function codexRepository(
       try {
         const auth = createAppAuth({
           appId: parseInt(process.env.GITHUB_APP_ID, 10),
-          privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, "\n"),
+          privateKey: process.env.GITHUB_PRIVATE_KEY.replace(REGEX_PATTERNS.NEWLINE_ESCAPE, "\n"),
         });
         const installation = await auth({
           type: "installation",
           installationId: parseInt(installationId, 10),
         });
-        const originHost = repoUrl.replace(/^https?:\/\//, "");
+        const originHost = repoUrl.replace(REGEX_PATTERNS.HTTP_PROTOCOL, "");
         cloneUrl = `https://x-access-token:${installation.token}@${originHost}`;
         logger.log("using authenticated GitHub URL");
       } catch (err) {
@@ -310,16 +402,16 @@ function evaluateAndOptimize(reply: string, repoPath: string): string {
 function normalizeContent(content: string): string {
   return content
     // Normalize line endings to Unix format
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
+    .replace(REGEX_PATTERNS.CARRIAGE_RETURN, '\n')
+    .replace(REGEX_PATTERNS.MAC_RETURN, '\n')
     // Normalize excessive whitespace while preserving code formatting
-    .replace(/\n{4,}/g, '\n\n\n')
+    .replace(REGEX_PATTERNS.EXCESSIVE_NEWLINES, '\n\n\n')
     // Remove trailing whitespace from lines but preserve intentional indentation
-    .replace(/[ \t]+$/gm, '')
+    .replace(REGEX_PATTERNS.TRAILING_WHITESPACE, '')
     // Normalize Unicode whitespace characters
-    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
+    .replace(REGEX_PATTERNS.UNICODE_SPACES, ' ')
     // Remove zero-width characters that could cause issues
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(REGEX_PATTERNS.ZERO_WIDTH_CHARS, '')
     // Trim overall content
     .trim();
 }
@@ -340,7 +432,7 @@ function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string 
     let optimizedReply = reply;
     
     // Enhanced search-replace block processing
-    optimizedReply = processSearchReplaceBlocksLocal(optimizedReply, repoPath);
+    optimizedReply = optimizeSearchReplaceBlocks(optimizedReply, repoPath);
     
     // Process other code block types
     optimizedReply = processGenericCodeBlocks(optimizedReply);
@@ -362,30 +454,29 @@ function validateAndOptimizeCodeBlocks(reply: string, repoPath: string): string 
 /**
  * Process and validate search-replace blocks with enhanced security and structure checks.
  */
-function processSearchReplaceBlocksLocal(reply: string, repoPath: string): string {
-  const searchReplaceRegex = /```search-replace\n([\s\S]*?)```/g;
-  let processedReply = reply;
-  let totalOffset = 0;
+function optimizeSearchReplaceBlocks(reply: string, repoPath: string): string {
+  const patcher = new StringPatcher(reply);
   
   // Reset regex state
-  searchReplaceRegex.lastIndex = 0;
+  REGEX_PATTERNS.SEARCH_REPLACE_BLOCK.lastIndex = 0;
   
   const matches = [];
   let match;
-  while ((match = searchReplaceRegex.exec(reply)) !== null) {
+  while ((match = REGEX_PATTERNS.SEARCH_REPLACE_BLOCK.exec(reply)) !== null) {
     matches.push(match);
   }
   
-  for (const match of matches) {
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
     const fullBlock = match[0];
     const blockContent = match[1];
     const matchIndex = match.index!;
     
     // Comprehensive validation of the search-replace block
-    const validation = validateSearchReplaceBlockStructureLocal(blockContent, repoPath);
+    const validation = validateSearchReplaceStructure(blockContent, repoPath);
     
     logger.log("Search-replace block validation", {
-      blockIndex: matches.indexOf(match),
+      blockIndex: i,
       isValid: validation.isValid,
       errorsCount: validation.errors.length,
       warningsCount: validation.warnings.length
@@ -401,25 +492,15 @@ function processSearchReplaceBlocksLocal(reply: string, repoPath: string): strin
       // Replace with informative comment
       const errorComment = `<!-- INVALID SEARCH-REPLACE BLOCK REMOVED\nErrors: ${errorDetails}\nOriginal content preserved but not executable.\n-->`;
       
-      const adjustedIndex = matchIndex + totalOffset;
-      processedReply = processedReply.substring(0, adjustedIndex) +
-                     errorComment +
-                     processedReply.substring(adjustedIndex + fullBlock.length);
-      
-      totalOffset += errorComment.length - fullBlock.length;
+      patcher.replaceAt(matchIndex, fullBlock.length, errorComment);
     } else {
       // Optimize valid blocks
       const optimizedBlock = optimizeSearchReplaceBlock(blockContent, validation);
       
       if (optimizedBlock !== blockContent) {
         const newFullBlock = '```search-replace\n' + optimizedBlock + '```';
-        const adjustedIndex = matchIndex + totalOffset;
         
-        processedReply = processedReply.substring(0, adjustedIndex) +
-                        newFullBlock +
-                        processedReply.substring(adjustedIndex + fullBlock.length);
-        
-        totalOffset += newFullBlock.length - fullBlock.length;
+        patcher.replaceAt(matchIndex, fullBlock.length, newFullBlock);
         
         logger.log("Search-replace block optimized", {
           originalLength: blockContent.length,
@@ -433,11 +514,10 @@ function processSearchReplaceBlocksLocal(reply: string, repoPath: string): strin
           warnings: validation.warnings,
           blockPreview: blockContent.substring(0, 100) + (blockContent.length > 100 ? '...' : '')
         });
-      }
     }
   }
   
-  return processedReply;
+  return patcher.getContent();
 }
 
 /**
@@ -447,15 +527,15 @@ function optimizeSearchReplaceBlock(blockContent: string, validation: any): stri
   let optimized = blockContent;
   
   // Normalize whitespace while preserving code structure
-  optimized = optimized.replace(/\n{3,}/g, '\n\n');
+  optimized = optimized.replace(REGEX_PATTERNS.MULTIPLE_NEWLINES, '\n\n');
   
   // Ensure proper FILE declaration format
-  optimized = optimized.replace(/^FILE:\s*(.*)$/gm, 'FILE: $1');
+  optimized = optimized.replace(REGEX_PATTERNS.FILE_DECLARATION, 'FILE: $1');
   
   // Ensure proper search/replace delimiters
-  optimized = optimized.replace(/^<<<<<<< SEARCH$/gm, '<<<<<<< SEARCH');
-  optimized = optimized.replace(/^=======$/gm, '=======');
-  optimized = optimized.replace(/^>>>>>>> REPLACE$/gm, '>>>>>>> REPLACE');
+  optimized = optimized.replace(REGEX_PATTERNS.SEARCH_MARKER, '<<<<<<< SEARCH');
+  optimized = optimized.replace(REGEX_PATTERNS.SEPARATOR_MARKER, '=======');
+  optimized = optimized.replace(REGEX_PATTERNS.REPLACE_MARKER, '>>>>>>> REPLACE');
   
   return optimized;
 }
@@ -505,13 +585,7 @@ function validateCodeContent(content: string, language: string): string[] {
   const issues: string[] = [];
   
   // Check for suspicious patterns
-  const suspiciousPatterns = [
-    { pattern: /eval\s*\(/i, desc: "eval() usage detected" },
-    { pattern: /exec\s*\(/i, desc: "exec() usage detected" },
-    { pattern: /system\s*\(/i, desc: "system() usage detected" },
-    { pattern: /rm\s+-rf/i, desc: "Dangerous file deletion command" },
-    { pattern: /sudo\s+/i, desc: "Privilege escalation command" }
-  ];
+  const suspiciousPatterns = DANGEROUS_PATTERNS;
   
   for (const { pattern, desc } of suspiciousPatterns) {
     if (pattern.test(content)) {
@@ -549,8 +623,8 @@ function validateJavaScriptCode(content: string): string[] {
   const issues: string[] = [];
   
   // Check bracket balance
-  const openBraces = (content.match(/{/g) || []).length;
-  const closeBraces = (content.match(/}/g) || []).length;
+  const openBraces = (content.match(REGEX_PATTERNS.OPEN_BRACES) || []).length;
+  const closeBraces = (content.match(REGEX_PATTERNS.CLOSE_BRACES) || []).length;
   
   if (openBraces !== closeBraces) {
     issues.push("Unbalanced curly braces");
@@ -589,7 +663,7 @@ function validateJavaScriptCode(content: string): string[] {
  */
 function validateCodeBlockStructure(reply: string): string {
   // Check for orphaned code block markers
-  const openMarkers = (reply.match(/```/g) || []).length;
+  const openMarkers = (reply.match(REGEX_PATTERNS.CODE_MARKERS) || []).length;
   
   if (openMarkers % 2 !== 0) {
     logger.warn("Unbalanced code block markers detected", { totalMarkers: openMarkers });
@@ -842,7 +916,7 @@ function validateFinalOutput(optimizedContent: string, originalContent: string):
   }
   
   // Check for code block balance
-  const codeBlockMarkers = (optimizedContent.match(/```/g) || []).length;
+  const codeBlockMarkers = (optimizedContent.match(REGEX_PATTERNS.CODE_MARKERS) || []).length;
   if (codeBlockMarkers % 2 !== 0) {
     issues.push("Unbalanced code block markers");
     qualityScore -= 15;
@@ -868,7 +942,7 @@ function validateFinalOutput(optimizedContent: string, originalContent: string):
  * @param repoPath - Repository path for file existence validation.
  * @returns Validation result with errors and warnings.
  */
-function validateSearchReplaceBlockStructureLocal(
+function validateSearchReplaceStructure(
   blockContent: string, 
   repoPath: string
 ): { isValid: boolean; errors: string[]; warnings: string[] } {
@@ -877,7 +951,7 @@ function validateSearchReplaceBlockStructureLocal(
 
   try {
     // Check for FILE declaration
-    const fileMatch = blockContent.match(/FILE:\s*(.*)/);
+    const fileMatch = blockContent.match(REGEX_PATTERNS.FILE_PATH);
     if (!fileMatch) {
       errors.push("Missing FILE declaration");
       return { isValid: false, errors, warnings };
@@ -895,19 +969,18 @@ function validateSearchReplaceBlockStructureLocal(
     }
 
     // Check if file exists (warning, not error)
-    const fs = require('fs');
-    const path = require('path');
     const fullPath = path.join(repoPath, filePath);
     if (!fs.existsSync(fullPath)) {
       warnings.push(`File does not exist: ${filePath}`);
     }
 
     // Check for SEARCH/REPLACE pairs
-    const searchReplaceRegex = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+    // Reset regex state and find pairs
+    REGEX_PATTERNS.SEARCH_REPLACE_PAIRS.lastIndex = 0;
     const operations = [];
     let operationMatch;
 
-    while ((operationMatch = searchReplaceRegex.exec(blockContent)) !== null) {
+    while ((operationMatch = REGEX_PATTERNS.SEARCH_REPLACE_PAIRS.exec(blockContent)) !== null) {
       operations.push({
         search: operationMatch[1],
         replace: operationMatch[2]
