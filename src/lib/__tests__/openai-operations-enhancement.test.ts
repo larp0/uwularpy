@@ -43,5 +43,16 @@ describe('OpenAI Operations Enhancement', () => {
       expect(o3Model.startsWith('o3')).toBe(true);
       expect(gptModel.startsWith('o3')).toBe(false);
     });
+
+    it('should handle temperature parameter correctly for o3 models', () => {
+      // Verify that o3 models are correctly identified and would use different parameters
+      const vipConfig = createIdeaGenerationConfig('larp0');
+      expect(vipConfig.model).toBe('o3-mini');
+      
+      // Temperature is still in the config (for compatibility), but generateAIResponse 
+      // will exclude it when calling o3 models
+      expect(vipConfig.temperature).toBe(0.9);
+      expect(vipConfig.maxTokens).toBe(30000);
+    });
   });
 });

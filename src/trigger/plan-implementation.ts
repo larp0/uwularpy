@@ -18,7 +18,7 @@ import {
   PLAN_REFINEMENT_TEMPLATE,
   PLAN_CANCELLED_TEMPLATE
 } from "../templates/issue-templates";
-import { createIdeaGenerationConfig, selectModelForUser } from "../lib/openai-operations";
+import { createIdeaGenerationConfig, selectModelForUser, generateAIResponse } from "../lib/openai-operations";
 
 // Define interfaces for GitHub objects to improve type safety
 interface GitHubMilestone {
@@ -524,48 +524,23 @@ Return ONLY a JSON array of NEW innovation ideas (don't repeat existing ones):
 Be UNHINGED in creativity - think bigger, bolder, more disruptive than normal AI responses.`;
 
     try {
-      const openaiApiKey = process.env.OPENAI_API_KEY;
-      if (!openaiApiKey) {
-        logger.warn(`Skipping refinement round ${round} - no OpenAI API key`);
-        break;
+      // Create config with slightly higher creativity for refinement
+      const refinementConfig = {
+        model: selectedModel,
+        maxTokens: ideaConfig.maxTokens,
+        temperature: Math.min(ideaConfig.temperature + 0.1, 1.0) // Slightly higher creativity for refinement
+      };
+
+      const content = await generateAIResponse(
+        refinementPrompt,
+        "You are a creative innovation expert who generates disruptive, unconventional ideas.",
+        refinementConfig
+      );
+
+      if (!content) {
+        logger.warn(`No content received for refinement round ${round}, continuing`);
+        continue;
       }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), config.openaiTimeout);
-
-      try {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${openaiApiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: selectedModel,
-            messages: [
-              { role: "system", content: "You are a creative innovation expert who generates disruptive, unconventional ideas." },
-              { role: "user", content: refinementPrompt }
-            ],
-            max_tokens: ideaConfig.maxTokens,
-            temperature: Math.min(ideaConfig.temperature + 0.1, 1.0) // Slightly higher creativity for refinement
-          }),
-          signal: controller.signal
-        });
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          logger.warn(`Refinement round ${round} failed with status ${response.status}, continuing with existing ideas`);
-          continue;
-        }
-
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content;
-
-        if (!content) {
-          logger.warn(`No content received for refinement round ${round}, continuing`);
-          continue;
-        }
 
         // Parse the new ideas
         try {
@@ -587,10 +562,6 @@ Be UNHINGED in creativity - think bigger, bolder, more disruptive than normal AI
             error: parseError instanceof Error ? parseError.message : 'Unknown error'
           });
         }
-
-      } finally {
-        clearTimeout(timeoutId);
-      }
 
     } catch (error) {
       logger.warn(`Refinement round ${round} failed`, {
@@ -716,82 +687,8 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
   }
 
   try {
-    // Validate OpenAI API key without logging it
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey || typeof openaiApiKey !== 'string') {
-      logger.error("OpenAI API key not found or invalid in environment variables");
-      throw new Error("OpenAI API key not configured");
-    }
-
-    // Perform OpenAI API call with retries
-    const analysisText = await retryWithBackoff(
-      async () => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), config.openaiTimeout);
-
-        try {
-          const response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${openaiApiKey}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              model: selectedModel,
-              messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt }
-              ],
-              max_tokens: ideaConfig.maxTokens,
-              temperature: ideaConfig.temperature
-            }),
-            signal: controller.signal
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unable to read error response');
-            
-            // Log error without exposing sensitive information
-            logger.error("OpenAI API request failed", { 
-              status: response.status, 
-              statusText: response.statusText,
-              hasErrorText: !!errorText,
-              // Don't log the actual error text as it might contain sensitive info
-              contentLength: userPrompt.length
-            });
-            
-            if (response.status === 429) {
-              throw new Error("Rate limit exceeded - will retry");
-            } else if (response.status >= 500) {
-              throw new Error("Server error - will retry");
-            } else {
-              throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
-            }
-          }
-
-          const data = await response.json();
-          const content = data.choices?.[0]?.message?.content;
-
-          if (!content) {
-            logger.error("No analysis content received from OpenAI", { 
-              hasChoices: !!data.choices,
-              choicesLength: data.choices?.length || 0
-            });
-            throw new Error("No analysis content received from OpenAI");
-          }
-
-          return content;
-          
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      },
-      config.retryAttempts,
-      config.retryDelay,
-      "OpenAI API call"
-    );
+    // Perform OpenAI API call with proper o3-mini support
+    const analysisText = await generateAIResponse(userPrompt, systemPrompt, ideaConfig);
 
     logger.info("Received analysis from OpenAI", { 
       contentLength: analysisText.length,
