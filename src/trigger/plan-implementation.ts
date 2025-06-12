@@ -171,11 +171,12 @@ export const ISSUE_PRIORITIES = {
 
 // Define interfaces for the plan structure
 interface PlanAnalysis {
-  missingComponents: string[];
+  repositoryOverview: string;
+  projectType?: string;
   criticalFixes: string[];
+  missingComponents: string[];
   requiredImprovements: string[];
   innovationIdeas: string[];
-  repositoryOverview: string;
 }
 
 interface IssueTemplate {
@@ -484,56 +485,54 @@ ${commits.map((commit: any) => `- ${commit.sha.slice(0, 7)}: ${commit.commit.mes
   return truncateContent(summary, maxContentLength);
 }
 
-// Helper function for iterative refinement of innovation ideas
+// Helper function for lightweight refinement focused on critical issues
 async function performIterativeRefinement(
   initialAnalysis: PlanAnalysis, 
   selectedModel: string, 
   ideaConfig: any, 
   config: any
 ): Promise<PlanAnalysis> {
-  logger.info("Starting iterative refinement of innovation ideas");
+  logger.info("Starting lightweight refinement focusing on critical issues");
   
-  const refinementRounds = 3;
+  // Reduced refinement rounds since we focus on critical issues, not innovation
+  const refinementRounds = 1;
   const currentAnalysis = { ...initialAnalysis };
   
   for (let round = 1; round <= refinementRounds; round++) {
-    logger.info(`Iterative refinement round ${round}/${refinementRounds}`);
+    logger.info(`Critical issues refinement round ${round}/${refinementRounds}`);
     
-    const refinementPrompt = `You are an innovation expert tasked with expanding and improving existing ideas. 
+    const refinementPrompt = `You are a security and reliability expert reviewing the analysis for any missed critical issues.
 
-CURRENT IDEAS (${currentAnalysis.innovationIdeas.length} total):
-${currentAnalysis.innovationIdeas.map((idea, i) => `${i + 1}. ${idea}`).join('\n')}
+CURRENT CRITICAL FIXES (${currentAnalysis.criticalFixes.length} total):
+${currentAnalysis.criticalFixes.map((fix, i) => `${i + 1}. ${fix}`).join('\n')}
 
 Your task for Round ${round}:
-1. **EXPAND**: Add 2-3 NEW disruptive innovation ideas that build on or complement the existing ones
-2. **FAST**: Ensure ideas are relevant to the project roadmap and fast to implement (1h - 24h max)
-3. **ESCALATE CREATIVITY**: Each new idea should be bolder and more unconventional than typical suggestions
-4. **CHALLENGE ASSUMPTIONS**: Think about impossible-seeming concepts that could become reality
-5. **REVENUE FOCUSED**: Ideas must be focused on creating new revenue channel or enhancing current ones, no buzzword fancy ai slop
+1. **IDENTIFY GAPS**: Look for any critical security, performance, or reliability issues that may have been missed
+2. **PRIORITIZE SAFETY**: Focus on issues that could cause system failures, security breaches, or data loss
+3. **PRACTICAL FIXES**: Suggest actionable improvements that address real-world problems
+4. **MAINTAINABILITY**: Consider technical debt that significantly impacts development velocity
 
-Return ONLY a JSON array of NEW innovation ideas (don't repeat existing ones):
+Return ONLY a JSON array of additional critical issues (don't repeat existing ones):
 {
-  "newInnovationIdeas": [
-    "Revolutionary concept 1 that pushes boundaries...",
-    "Disruptive integration 2 that creates new market...",
-    "Bold architectural innovation 3 that enables impossible scale...",
-    "... continue with 20-30 more creative, game-changing ideas"
+  "newCriticalIssues": [
+    "Additional security vulnerability that needs immediate attention [Size: S, Priority: Must, Risk: High]",
+    "Performance bottleneck affecting user experience [Size: M, Priority: Must]"
   ]
 }
 
-Be UNHINGED in creativity - think bigger, bolder, more disruptive than normal AI responses.`;
+Focus on real, actionable critical issues rather than theoretical problems.`;
 
     try {
-      // Create config with slightly higher creativity for refinement
+      // Use existing config for refinement
       const refinementConfig = {
         model: selectedModel,
         maxTokens: ideaConfig.maxTokens,
-        temperature: Math.min(ideaConfig.temperature + 0.1, 1.0) // Slightly higher creativity for refinement
+        temperature: Math.max(ideaConfig.temperature - 0.1, 0.1) // Lower creativity for critical issues
       };
 
       const content = await generateAIResponse(
         refinementPrompt,
-        "You are a creative innovation expert who generates disruptive, unconventional ideas.",
+        "You are a critical systems expert who identifies serious technical issues that need immediate attention.",
         refinementConfig
       );
 
@@ -542,18 +541,18 @@ Be UNHINGED in creativity - think bigger, bolder, more disruptive than normal AI
         continue;
       }
 
-        // Parse the new ideas
+        // Parse the new critical issues
         try {
           const cleanedText = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
           const refinementResult = JSON.parse(cleanedText);
           
-          if (refinementResult.newInnovationIdeas && Array.isArray(refinementResult.newInnovationIdeas)) {
-            const beforeCount = currentAnalysis.innovationIdeas.length;
-            currentAnalysis.innovationIdeas = [
-              ...currentAnalysis.innovationIdeas,
-              ...refinementResult.newInnovationIdeas
+          if (refinementResult.newCriticalIssues && Array.isArray(refinementResult.newCriticalIssues)) {
+            const beforeCount = currentAnalysis.criticalFixes.length;
+            currentAnalysis.criticalFixes = [
+              ...currentAnalysis.criticalFixes,
+              ...refinementResult.newCriticalIssues
             ];
-            logger.info(`Refinement round ${round} added ${refinementResult.newInnovationIdeas.length} new ideas (${beforeCount} -> ${currentAnalysis.innovationIdeas.length})`);
+            logger.info(`Refinement round ${round} added ${refinementResult.newCriticalIssues.length} new critical issues (${beforeCount} -> ${currentAnalysis.criticalFixes.length})`);
           } else {
             logger.warn(`Invalid refinement result structure for round ${round}`);
           }
@@ -593,7 +592,7 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
     temperature: ideaConfig.temperature 
   });
 
-  const systemPrompt = `You are a seasoned Engineering Manager and Technical Architect with 15+ years of experience leading successful software delivery. Apply proven project management methodologies, realistic estimation practices, and critical business thinking to analyze this repository.
+  const systemPrompt = `You are a seasoned Engineering Manager and Technical Architect with 15+ years of experience leading successful software delivery. Your PRIMARY FOCUS is identifying, prioritizing, and resolving critical codebase issues that affect reliability, maintainability, security, and developer experience.
 
 🎯 MANAGEMENT FRAMEWORK:
 - Apply the MoSCoW method (Must/Should/Could/Won't) for prioritization
@@ -601,7 +600,13 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
 - Consider dependencies, blockers, and risk factors that could derail timelines
 - Think about team capacity, skill gaps, and knowledge transfer needs
 - Evaluate technical debt impact on velocity and maintainability
-- Assess market timing and competitive positioning for features
+- Focus on resolving critical issues before considering new features
+- Question assumptions: What could go wrong? What are we missing?
+- Consider opportunity cost: What are we NOT doing by prioritizing this?
+- Evaluate ROI: Does effort justify expected business impact?
+- Think about maintenance burden: How will this age over time?
+- Consider team dynamics: Do we have the right skills? Knowledge gaps?
+- Assess external dependencies: Third-party APIs, infrastructure, compliance
 
 📊 REALISTIC ESTIMATION GUIDELINES:
 - XS (1-3 hours): Simple config changes, minor bug fixes
@@ -610,71 +615,84 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
 - L (1-2 weeks): Complex features, major architectural changes
 - XL (3+ weeks): Platform rewrites, major system integrations
 
-🚨 CRITICAL THINKING APPROACH:
-- Question assumptions: What could go wrong? What are we missing?
-- Consider opportunity cost: What are we NOT doing by prioritizing this?
-- Evaluate ROI: Does effort justify expected business impact?
-- Think about maintenance burden: How will this age over time?
-- Consider team dynamics: Do we have the right skills? Knowledge gaps?
-- Assess external dependencies: Third-party APIs, infrastructure, compliance
+🔍 PROJECT TYPE DETECTION & SPECIALIZED ANALYSIS:
+Analyze the repository to determine project type and apply appropriate checklists:
 
-⚠️ RED FLAGS TO IDENTIFY:
+**FRONTEND REPOSITORIES** (React, Vue, Angular, Next.js, CSS, HTML):
+- Theming & Consistency: Single source of truth for theme variables, no hardcoded styles, dynamic theming support
+- Layout & Responsiveness: Proper Flexbox/Grid usage, mobile-first design, consistent breakpoints
+- UI/UX Quality: Accessible interactive elements, keyboard navigation, clear user feedback
+- Accessibility: WCAG 2.1 AA compliance, semantic HTML, screen reader support
+- Performance: Lazy loading, optimized images, minimal bundle size, efficient rendering
+- Best Practices: Linting, modular components, TypeScript/PropTypes, documentation
+
+**BACKEND REPOSITORIES** (Node.js, Python, Java, Go, PHP):
+- 12 Factor App Compliance: Environment config, explicit dependencies, stateless design
+- Concurrency & Thread Safety: Proper synchronization, async/await patterns
+- Database Health: Proper indexing, connection pooling, migration automation
+- Testing & Coverage: High test coverage, E2E tests, CI/CD integration
+- Security: Input validation, parameterized queries, dependency auditing
+- Error Handling & Observability: Structured logging, monitoring, alerting
+- Code Health: Memory leak prevention, modular architecture, code style adherence
+
+**SOLANA SMART CONTRACT DEVELOPMENT** (Rust, Anchor):
+- Security: Input validation, signer verification, access control, arithmetic safety
+- Performance: Minimal account data, compute optimization, efficient CPIs
+- Testing & Reliability: Comprehensive test coverage, fuzz testing, edge cases
+- Upgradeability & Governance: Secure upgrade authority, governance mechanisms
+
+**RUST BEST PRACTICES**:
+- General Code Quality: Small focused functions, expressive naming, minimal duplication
+- Idiomatic Rust: Pattern matching, Result/Option types, iterator usage
+- Error Handling: Custom error types, graceful error propagation
+- Safety and Security: Minimal unsafe code, dependency auditing, cryptographic libraries
+- Concurrency: Thread-safe primitives, async patterns, message passing
+- Testing: Unit/integration tests, property-based testing, benchmarking
+
+🚨 CRITICAL ISSUES TO PRIORITIZE:
 - Security vulnerabilities that could lead to breaches
 - Performance bottlenecks affecting user experience  
 - Scalability limitations preventing growth
 - Technical debt creating development friction
 - Missing testing/monitoring creating blind spots
 - Outdated dependencies with known vulnerabilities
+- Accessibility violations affecting user access
+- Memory leaks and resource exhaustion
+- Configuration and deployment issues
+- Documentation gaps affecting maintainability
 
-🎨 INNOVATION CRITERIA - GENERATE AT LEAST 5 MORE IDEAS THAN USUAL:
-- Revenue, revenue, revenue
-- Market differentiation potential
-- User experience enhancement  
-- Developer productivity gains
-- Revenue generation opportunities
-- Competitive advantage creation
-- DISRUPTIVE and UNCONVENTIONAL thinking - avoid "sheep AI innovator" ideas
-- BOLD concepts that challenge industry norms
-- UNHINGED creativity that pushes boundaries
-- Consider ideas that seem impossible but could revolutionize the space
-
-**CRITICAL: For innovation ideas, generate AT LEAST 5 distinct ideas covering:**
-- Revolutionary feature concepts that don't exist yet
-- Completely new business models enabled by this technology
-- Unconventional user interaction paradigms
-- Bold architectural innovations
-- Creative monetization strategies
-- Experimental user experience concepts
-- Cutting-edge technical implementations
-- Industry-disrupting workflows
-- Next-generation collaboration models
+💡 INNOVATION OPPORTUNITIES (LOWER PRIORITY):
+After addressing critical issues, consider:
+- User experience enhancements
+- Developer productivity improvements
+- Performance optimizations
+- New feature possibilities that build on solid foundations
 
 Return analysis with realistic timelines, clear dependencies, and honest assessment of risks:
 
 {
   "repositoryOverview": "Executive summary: what this does, current state, key challenges (2-3 sentences)",
-  "missingComponents": [
-    "Component description [Size: S-M, Priority: Must] - Business justification and risk if not addressed",
-    "Another missing piece [Size: L, Priority: Should] - Why this matters for product success"
-  ],
+  "projectType": "frontend|backend|solana|rust|fullstack",
   "criticalFixes": [
-    "Security/performance issue [Size: XS-S, Priority: Must, Risk: High] - Immediate business impact if unfixed",
-    "System reliability issue [Size: M, Priority: Must, Dependencies: Infrastructure team] - What could break"
+    "Security/performance/accessibility issue [Size: XS-S, Priority: Must, Risk: High] - Immediate impact if unfixed",
+    "System reliability issue [Size: M, Priority: Must, Dependencies: team] - What could break"
+  ],
+  "missingComponents": [
+    "Essential component [Size: S-M, Priority: Must] - Business justification and risk if not addressed",
+    "Important missing piece [Size: L, Priority: Should] - Why this matters for product success"
   ],
   "requiredImprovements": [
     "Technical debt item [Size: M, Priority: Should, ROI: High] - How this blocks future development",
     "Code quality issue [Size: S-M, Priority: Could] - Long-term maintenance burden"
   ],
   "innovationIdeas": [
-    "GENERATE MANY MORE IDEAS HERE - minimum 5 creative, disruptive concepts",
-    "Breakthrough integration with emerging tech that creates new market category",
-    "Disruptive business model that challenges industry assumptions",
-    "Bold architectural innovation that enables impossible scale",
-    "... continue with at least 10+ more creative, boundary-pushing ideas"
+    "Well-founded enhancement built on solid codebase foundation",
+    "Performance optimization opportunity",
+    "User experience improvement"
   ]
 }
 
-Be brutally honest about effort, realistic about timelines, and crystal clear about business justification. Be UNHINGED and REVENUE-focused with innovation ideas - think bigger, bolder, more disruptive than normal AI responses.`;
+FOCUS: Prioritize critical issues over new features. Address security, performance, accessibility, and maintainability first. Innovation comes after establishing a solid, reliable foundation.`;
 
   // Truncate repository content to prevent token limits
   const truncatedContent = truncateContent(repositoryContent, config.maxContentLength);
@@ -708,13 +726,14 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
     }
 
     // Validate analysis structure
-    const requiredFields = ['missingComponents', 'criticalFixes', 'requiredImprovements', 'innovationIdeas'];
+    const requiredFields = ['criticalFixes', 'missingComponents', 'requiredImprovements', 'innovationIdeas'];
     const missingFields = requiredFields.filter(field => !analysis[field as keyof PlanAnalysis]);
     
     if (missingFields.length > 0) {
       logger.error("Invalid analysis structure received from LLM", {
         missingFields,
-        hasRepositoryOverview: !!analysis.repositoryOverview
+        hasRepositoryOverview: !!analysis.repositoryOverview,
+        projectType: analysis.projectType || 'not specified'
       });
       throw new Error(`Invalid analysis structure: missing fields ${missingFields.join(', ')}`);
     }
@@ -727,18 +746,20 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
     });
 
     logger.info("Initial analysis parsing completed successfully", {
-      missingComponents: analysis.missingComponents.length,
+      projectType: analysis.projectType || 'not specified',
       criticalFixes: analysis.criticalFixes.length,
+      missingComponents: analysis.missingComponents.length,
       requiredImprovements: analysis.requiredImprovements.length,
       innovationIdeas: analysis.innovationIdeas.length
     });
 
-    // ITERATIVE REFINEMENT: Enhance innovation ideas through 2-3 refinement rounds
+    // REFINEMENT: Review for additional critical issues
     analysis = await performIterativeRefinement(analysis, selectedModel, ideaConfig, config);
 
     logger.info("Final analysis after iterative refinement", {
-      missingComponents: analysis.missingComponents.length,
+      projectType: analysis.projectType || 'not specified',
       criticalFixes: analysis.criticalFixes.length,
+      missingComponents: analysis.missingComponents.length,
       requiredImprovements: analysis.requiredImprovements.length,
       innovationIdeas: analysis.innovationIdeas.length
     });
@@ -751,36 +772,35 @@ Be brutally honest about effort, realistic about timelines, and crystal clear ab
       errorType: error instanceof Error ? error.constructor.name : typeof error
     });
     
-    // Enhanced fallback analysis
+    // Enhanced fallback analysis with focus on critical issues
     const fallbackAnalysis: PlanAnalysis = {
-      repositoryOverview: "Analysis temporarily unavailable due to LLM service issues. Using fallback assessment - this repository appears to be an active project that would benefit from systematic improvements and comprehensive review.",
-      missingComponents: [
-        "Comprehensive documentation and setup instructions",
-        "Automated testing infrastructure and CI/CD pipeline",
-        "Security scanning and vulnerability assessment tools",
-        "Code quality metrics and linting configuration",
-        "Dependency management and update automation"
-      ],
+      repositoryOverview: "Analysis temporarily unavailable due to LLM service issues. Using fallback assessment - this repository appears to be an active project that would benefit from systematic improvements focused on reliability, security, and maintainability.",
+      projectType: "fullstack",
       criticalFixes: [
-        "Review and update dependencies for security vulnerabilities",
-        "Implement comprehensive error handling and logging throughout codebase",
-        "Add proper input validation and sanitization for all user inputs",
-        "Establish backup and recovery procedures for critical data",
-        "Audit authentication and authorization mechanisms"
+        "Review and update dependencies for security vulnerabilities [Size: S, Priority: Must, Risk: High]",
+        "Implement comprehensive error handling and logging throughout codebase [Size: M, Priority: Must]",
+        "Add proper input validation and sanitization for all user inputs [Size: M, Priority: Must, Risk: High]",
+        "Audit authentication and authorization mechanisms [Size: M, Priority: Must, Risk: Critical]",
+        "Establish proper monitoring and alerting for critical system components [Size: S, Priority: Must]"
+      ],
+      missingComponents: [
+        "Comprehensive automated testing infrastructure and CI/CD pipeline [Size: L, Priority: Must]",
+        "Security scanning and vulnerability assessment tools [Size: M, Priority: Should]",
+        "Code quality metrics and linting configuration [Size: S, Priority: Should]",
+        "Dependency management and update automation [Size: M, Priority: Should]",
+        "Documentation and setup instructions [Size: M, Priority: Should]"
       ],
       requiredImprovements: [
-        "Code organization and modularization for better maintainability",
-        "Performance optimization and profiling implementation",
-        "Comprehensive code documentation and inline commenting",
-        "Consistent coding standards and automated linting setup",
-        "Database optimization and query performance tuning"
+        "Code organization and modularization for better maintainability [Size: L, Priority: Should, ROI: High]",
+        "Performance optimization and profiling implementation [Size: M, Priority: Could]",
+        "Comprehensive code documentation and inline commenting [Size: M, Priority: Could]",
+        "Consistent coding standards and automated linting setup [Size: S, Priority: Should]",
+        "Database optimization and query performance tuning [Size: M, Priority: Could]"
       ],
       innovationIdeas: [
-        "Implement advanced monitoring and analytics dashboard with real-time metrics",
-        "Add machine learning capabilities for predictive features and user behavior analysis",
-        "Create comprehensive API integration capabilities for third-party services",
-        "Develop mobile companion application for enhanced user experience",
-        "Add real-time collaboration features with live updates and notifications"
+        "Advanced monitoring and analytics dashboard with real-time metrics [Size: L, Priority: Won't]",
+        "Enhanced user experience improvements based on accessibility standards [Size: M, Priority: Could]",
+        "Performance optimization through code splitting and lazy loading [Size: M, Priority: Could]"
       ]
     };
 
