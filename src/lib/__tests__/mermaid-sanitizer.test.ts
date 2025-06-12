@@ -1,4 +1,4 @@
-import { sanitizeMermaidDiagram, sanitizeNodeLabel } from '../ai-sanitizer';
+import { sanitizeMermaidDiagram, sanitizeNodeLabel, sanitizeMermaidDiagramsInResponse } from '../ai-sanitizer';
 
 describe('Mermaid Diagram Sanitizer', () => {
   
@@ -233,6 +233,110 @@ describe('Mermaid Diagram Sanitizer', () => {
       expect(result).toContain('A["Text with nested quotes and backticks"]');
       expect(result).toContain('B["Single quoted text with parens"]');
       expect(result).toContain('C["Mixed test with brackets"]');
+    });
+  });
+
+  describe('sanitizeMermaidDiagramsInResponse', () => {
+    it('should sanitize Mermaid diagrams within response text', () => {
+      const input = `Here is my analysis:
+
+\`\`\`mermaid
+flowchart TD
+  A("Start: (Process)") --> B["Middle: 'Step'"]
+  B --> C{"Decision: (Yes/No)"}
+\`\`\`
+
+And here's another diagram:
+
+\`\`\`mermaid
+graph LR
+  X["Input: {data}"] --> Y["Output: (result)"]
+\`\`\`
+
+End of analysis.`;
+
+      const result = sanitizeMermaidDiagramsInResponse(input);
+      
+      // Should preserve the structure but sanitize diagram content
+      expect(result).toContain('Here is my analysis:');
+      expect(result).toContain('```mermaid');
+      expect(result).toContain('End of analysis.');
+      
+      // Should have sanitized diagram content
+      expect(result).toContain('A["Start Process"]');
+      expect(result).toContain('B["Middle Step"]');
+      expect(result).toContain('C["Decision YesNo"]'); // Slash is removed by sanitization
+      expect(result).toContain('X["Input data"]');
+      expect(result).toContain('Y["Output result"]');
+      
+      // Should preserve arrows and structure
+      expect(result).toContain('-->');
+      expect(result).toContain('flowchart TD');
+      expect(result).toContain('graph LR');
+    });
+
+    it('should handle response with no Mermaid diagrams', () => {
+      const input = `This is a regular response without any Mermaid diagrams.
+      
+It has multiple lines but no code blocks.`;
+
+      const result = sanitizeMermaidDiagramsInResponse(input);
+      
+      expect(result).toBe(input); // Should be unchanged
+    });
+
+    it('should handle multiple Mermaid diagrams in one response', () => {
+      const input = `First diagram:
+\`\`\`mermaid
+flowchart TD
+  A("Bad: (Node)") --> B
+\`\`\`
+
+Second diagram:
+\`\`\`mermaid
+sequenceDiagram
+  participant X as "User: (Client)"
+  X->>Y: "Message: {data}"
+\`\`\`
+
+Third diagram:
+\`\`\`mermaid
+graph LR
+  Z["Test: 'Value'"] --> W
+\`\`\``;
+
+      const result = sanitizeMermaidDiagramsInResponse(input);
+      
+      // All diagrams should be sanitized
+      expect(result).toContain('A["Bad Node"]');
+      expect(result).toContain('participant X as "User Client"');
+      expect(result).toContain('Z["Test Value"]');
+      
+      // Structure should be preserved
+      expect(result).toContain('First diagram:');
+      expect(result).toContain('Second diagram:');
+      expect(result).toContain('Third diagram:');
+    });
+
+    it('should handle invalid input gracefully', () => {
+      expect(sanitizeMermaidDiagramsInResponse('')).toBe('');
+      expect(sanitizeMermaidDiagramsInResponse(null as any)).toBe('');
+      expect(sanitizeMermaidDiagramsInResponse(undefined as any)).toBe('');
+    });
+
+    it('should handle malformed Mermaid blocks', () => {
+      const input = `\`\`\`mermaid
+This is not a valid mermaid diagram
+with bad syntax: (test)
+\`\`\``;
+
+      const result = sanitizeMermaidDiagramsInResponse(input);
+      
+      // Should still process it through sanitization even if malformed
+      expect(result).toContain('```mermaid');
+      // The content is passed through sanitization but since it doesn't match node patterns,
+      // it may remain largely unchanged. The sanitizer primarily targets node definitions.
+      expect(result).toContain('This is not a valid mermaid diagram');
     });
   });
 });
