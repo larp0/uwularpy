@@ -3,6 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { createAppAuth } from "@octokit/auth-app";
 import { GitHubContext } from "../services/task-types";
 import { COPILOT_USERNAME } from "./workflow-constants";
+import { sanitizeMermaidDiagramsInResponse } from "../lib/ai-sanitizer";
 
 // Export the full code review implementation
 export async function runFullCodeReviewTask(payload: GitHubContext, ctx: any) {
@@ -282,11 +283,15 @@ Avoid any escape characters or parentheses in both node names and labels    one 
   const commentBody = review.trim() || 
     `🛑 OpenAI returned an empty review. Please try again later.\n\n` +
     `Error details: ${errorMessage || "Unknown error"}`;
+  
+  // Sanitize any Mermaid diagrams in the response before posting
+  const sanitizedCommentBody = sanitizeMermaidDiagramsInResponse(commentBody);
+  
   await octokit.issues.createComment({
     owner,
     repo,
     issue_number: issueNumber,
-    body: commentBody
+    body: sanitizedCommentBody
   });
 
   return { success: true };
@@ -330,15 +335,18 @@ ${projectReview}
 
 @${COPILOT_USERNAME}`;
 
-    // 5. Post the comment
+    // 5. Sanitize any Mermaid diagrams in the response before posting
+    const sanitizedFinalComment = sanitizeMermaidDiagramsInResponse(finalComment);
+
+    // 6. Post the comment
     await octokit.issues.createComment({
       owner,
       repo,
       issue_number: issueNumber,
-      body: finalComment
+      body: sanitizedFinalComment
     });
 
-    // 6. Assign the issue to copilot
+    // 7. Assign the issue to copilot
     await assignIssueToCopilot(octokit, owner, repo, issue);
 
     logger.log("Successfully completed issue code review workflow", { issueNumber });

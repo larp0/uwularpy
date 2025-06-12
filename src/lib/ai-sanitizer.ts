@@ -380,3 +380,53 @@ export function sanitizeNodeLabel(label: string): string {
 
   return sanitized;
 }
+
+/**
+ * Sanitize all Mermaid diagrams found in a response text.
+ * Finds all ```mermaid code blocks and sanitizes the diagram content.
+ * 
+ * @param response - The response text that may contain Mermaid diagrams
+ * @returns The response with sanitized Mermaid diagrams
+ */
+export function sanitizeMermaidDiagramsInResponse(response: string): string {
+  if (!response || typeof response !== 'string') {
+    logger.warn('Invalid response input for Mermaid sanitization', { input: response });
+    return response || '';
+  }
+
+  logger.log('Sanitizing Mermaid diagrams in response', { 
+    originalLength: response.length 
+  });
+
+  // Find all mermaid code blocks using regex
+  const mermaidPattern = /```mermaid\s*\n([\s\S]*?)\n```/gi;
+  let sanitizedResponse = response;
+  let match;
+  let diagramCount = 0;
+
+  // Replace each mermaid diagram with its sanitized version
+  while ((match = mermaidPattern.exec(response)) !== null) {
+    const originalDiagram = match[1];
+    const sanitizedDiagram = sanitizeMermaidDiagram(originalDiagram);
+    
+    // Replace the diagram content while preserving the code block structure
+    const originalBlock = match[0];
+    const sanitizedBlock = `\`\`\`mermaid\n${sanitizedDiagram}\n\`\`\``;
+    
+    sanitizedResponse = sanitizedResponse.replace(originalBlock, sanitizedBlock);
+    diagramCount++;
+    
+    logger.log(`Sanitized Mermaid diagram ${diagramCount}`, {
+      originalLength: originalDiagram.length,
+      sanitizedLength: sanitizedDiagram.length
+    });
+  }
+
+  logger.log('Mermaid diagram sanitization in response complete', {
+    originalLength: response.length,
+    sanitizedLength: sanitizedResponse.length,
+    diagramsFound: diagramCount
+  });
+
+  return sanitizedResponse;
+}

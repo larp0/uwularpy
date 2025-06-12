@@ -3,6 +3,7 @@
 import { logger } from "@trigger.dev/sdk/v3";
 import { GitHubContext } from "../services/task-types";
 import { createAuthenticatedOctokit } from "./github-auth";
+import { sanitizeMermaidDiagramsInResponse } from "../lib/ai-sanitizer";
 
 interface ConversationMessage {
   author: string;
@@ -264,11 +265,14 @@ async function postResponseComment(
   response: string
 ): Promise<void> {
   try {
+    // Sanitize any Mermaid diagrams in the response before posting
+    const sanitizedResponse = sanitizeMermaidDiagramsInResponse(response);
+    
     await octokit.rest.issues.createComment({
       owner,
       repo,
       issue_number: issueNumber,
-      body: response
+      body: sanitizedResponse
     });
     
   } catch (error) {
