@@ -601,6 +601,12 @@ async function performComprehensiveAnalysis(repositoryContent: string, userQuery
 - Think about team capacity, skill gaps, and knowledge transfer needs
 - Evaluate technical debt impact on velocity and maintainability
 - Focus on resolving critical issues before considering new features
+- Question assumptions: What could go wrong? What are we missing?
+- Consider opportunity cost: What are we NOT doing by prioritizing this?
+- Evaluate ROI: Does effort justify expected business impact?
+- Think about maintenance burden: How will this age over time?
+- Consider team dynamics: Do we have the right skills? Knowledge gaps?
+- Assess external dependencies: Third-party APIs, infrastructure, compliance
 
 📊 REALISTIC ESTIMATION GUIDELINES:
 - XS (1-3 hours): Simple config changes, minor bug fixes
