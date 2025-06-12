@@ -49,6 +49,16 @@ export const planTask = task({
   },
 });
 
+export const multiPlanTask = task({
+  id: "multi-plan-task", 
+  machine: "large-2x",
+  maxDuration: 1800, // 30 minutes for multi-repository analysis
+  run: async (payload: GitHubContext, { ctx }) => {
+    const { runMultiPlanTask } = await import("./multi-plan-implementation");
+    return await runMultiPlanTask(payload, ctx);
+  },
+});
+
 export const planApprovalTask = task({
   id: "plan-approval-task",
   machine: "large-2x",
