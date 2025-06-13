@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookSignature } from '@/services/github-auth';
-import { getClient, triggerTask } from '@/services/trigger-client';
+import { triggerTask } from '@/services/trigger-client';
 import { generateRequestId, GitHubContext } from '@/services/task-types';
 import { parseCommand, getTaskType } from '@/lib/command-parser';
 
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     if (event === 'pull_request' && body.installation?.id) {
       const prNumber = body.pull_request?.number;
       const prTitle = body.pull_request?.title;
-      const prBody = body.pull_request?.body;
+
       const repo = body.repository?.name;
       const owner = body.repository?.owner?.login;
       
