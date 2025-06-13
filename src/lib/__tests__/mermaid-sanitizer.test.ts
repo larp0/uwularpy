@@ -3,31 +3,32 @@ import { sanitizeMermaidDiagram, sanitizeNodeLabel, sanitizeMermaidDiagramsInRes
 describe('Mermaid Diagram Sanitizer', () => {
   
   describe('sanitizeNodeLabel', () => {
-    it('should remove problematic symbols from labels', () => {
-      expect(sanitizeNodeLabel('Node (alpha)')).toBe('Node alpha');
-      expect(sanitizeNodeLabel('Beta: "Hello"')).toBe('Beta Hello');
-      expect(sanitizeNodeLabel('Gamma, with symbols!')).toBe('Gamma with symbols');
+    it('should remove all non-letter characters from labels', () => {
+      expect(sanitizeNodeLabel('Node (alpha)')).toBe('Nodealpha');
+      expect(sanitizeNodeLabel('Beta: "Hello"')).toBe('BetaHello');
+      expect(sanitizeNodeLabel('Gamma, with symbols!')).toBe('Gammawithsymbols');
       expect(sanitizeNodeLabel('Test[brackets]')).toBe('Testbrackets');
       expect(sanitizeNodeLabel('Test{braces}')).toBe('Testbraces');
     });
 
-    it('should handle quotes and special characters', () => {
-      expect(sanitizeNodeLabel('"Quoted text"')).toBe('Quoted text');
-      expect(sanitizeNodeLabel("'Single quotes'")).toBe('Single quotes');
+    it('should remove quotes, spaces, and special characters', () => {
+      expect(sanitizeNodeLabel('"Quoted text"')).toBe('Quotedtext');
+      expect(sanitizeNodeLabel("'Single quotes'")).toBe('Singlequotes');
       expect(sanitizeNodeLabel('`Backticks`')).toBe('Backticks');
-      expect(sanitizeNodeLabel('Text with; semicolon: colon, comma')).toBe('Text with semicolon colon comma');
+      expect(sanitizeNodeLabel('Text with; semicolon: colon, comma')).toBe('Textwithsemicoloncoloncomma');
     });
 
-    it('should handle symbols that break Mermaid syntax', () => {
-      expect(sanitizeNodeLabel('Pipe | symbol')).toBe('Pipe symbol');
-      expect(sanitizeNodeLabel('Slash / backslash \\')).toBe('Slash backslash');
+    it('should remove symbols and numbers that break Mermaid syntax', () => {
+      expect(sanitizeNodeLabel('Pipe | symbol')).toBe('Pipesymbol');
+      expect(sanitizeNodeLabel('Slash / backslash \\')).toBe('Slashbackslash');
       expect(sanitizeNodeLabel('Symbols <>&$#@!%^*+=~?')).toBe('Symbols');
+      expect(sanitizeNodeLabel('Numbers123')).toBe('Numbers');
     });
 
-    it('should normalize whitespace', () => {
-      expect(sanitizeNodeLabel('Multiple    spaces   here')).toBe('Multiple spaces here');
-      expect(sanitizeNodeLabel('  Leading and trailing  ')).toBe('Leading and trailing');
-      expect(sanitizeNodeLabel('\t\nTabs and\nnewlines\t')).toBe('Tabs and newlines');
+    it('should remove all spaces and whitespace', () => {
+      expect(sanitizeNodeLabel('Multiple    spaces   here')).toBe('Multiplespaceshere');
+      expect(sanitizeNodeLabel('  Leading and trailing  ')).toBe('Leadingandtrailing');
+      expect(sanitizeNodeLabel('\t\nTabs and\nnewlines\t')).toBe('Tabsandnewlines');
     });
 
     it('should handle empty or invalid input', () => {
@@ -38,9 +39,9 @@ describe('Mermaid Diagram Sanitizer', () => {
       expect(sanitizeNodeLabel(123 as any)).toBe('');
     });
 
-    it('should handle labels that start with numbers', () => {
-      expect(sanitizeNodeLabel('123 Start with number')).toBe('n123 Start with number');
-      expect(sanitizeNodeLabel('9Test')).toBe('n9Test');
+    it('should handle labels that start with numbers by removing numbers', () => {
+      expect(sanitizeNodeLabel('123 Start with number')).toBe('Startwithnumber');
+      expect(sanitizeNodeLabel('9Test')).toBe('Test');
     });
 
     it('should provide fallback for completely invalid labels', () => {
@@ -56,8 +57,8 @@ describe('Mermaid Diagram Sanitizer', () => {
   beta --> gamma('Gamma, with symbols!');`;
 
       const expected = `flowchart TD
-  alpha["Node alpha"] --> beta["Beta Hello"]
-  beta --> gamma["Gamma with symbols"];`;
+  alpha["Nodealpha"] --> beta["BetaHello"]
+  beta --> gamma["Gammawithsymbols"];`;
 
       expect(sanitizeMermaidDiagram(input)).toBe(expected);
     });
@@ -72,10 +73,10 @@ describe('Mermaid Diagram Sanitizer', () => {
       
       expect(result).toContain('flowchart TD');
       expect(result).toContain('-->');
-      expect(result).toContain('A["Start node"]');
-      expect(result).toContain('B["Decision YesNo"]');
-      expect(result).toContain('C["End Success"]');
-      expect(result).toContain('D["Failure Error"]');
+      expect(result).toContain('A["Startnode"]');
+      expect(result).toContain('B["DecisionYesNo"]');
+      expect(result).toContain('C["EndSuccess"]');
+      expect(result).toContain('D["FailureError"]');
     });
 
     it('should handle different node shape syntaxes', () => {
@@ -87,10 +88,10 @@ describe('Mermaid Diagram Sanitizer', () => {
 
       const result = sanitizeMermaidDiagram(input);
       
-      expect(result).toContain('A["Square brackets"]');
-      expect(result).toContain('B["Round parentheses"]');
-      expect(result).toContain('C["Diamond braces"]');
-      expect(result).toContain('D["Double braces test"]');
+      expect(result).toContain('A["Squarebrackets"]');
+      expect(result).toContain('B["Roundparentheses"]');
+      expect(result).toContain('C["Diamondbraces"]');
+      expect(result).toContain('D["Doublebracestest"]');
     });
 
     it('should preserve diagram type declarations', () => {
@@ -113,7 +114,7 @@ describe('Mermaid Diagram Sanitizer', () => {
         const input = `${diagramType}\n  A["Test (node)"]`;
         const result = sanitizeMermaidDiagram(input);
         expect(result).toContain(diagramType);
-        expect(result).toContain('A["Test node"]');
+        expect(result).toContain('A["Testnode"]');
       });
     });
 
@@ -131,7 +132,7 @@ describe('Mermaid Diagram Sanitizer', () => {
       expect(result).toContain('class A className');
       expect(result).toContain('style A fill:#f9f,stroke:#333,stroke-width:4px');
       expect(result).toContain('click A "http://example.com"');
-      expect(result).toContain('A["Node with symbols"]');
+      expect(result).toContain('A["Nodewithsymbols"]');
     });
 
     it('should handle complex flowcharts with multiple connections', () => {
@@ -144,11 +145,11 @@ describe('Mermaid Diagram Sanitizer', () => {
 
       const result = sanitizeMermaidDiagram(input);
       
-      expect(result).toContain('Start["Start Process"]');
-      expect(result).toContain('Decision["Check Status"]');
-      expect(result).toContain('Success["Complete Done"]');
-      expect(result).toContain('Retry["Retry Again"]');
-      expect(result).toContain('End["End Finished"]');
+      expect(result).toContain('Start["StartProcess"]');
+      expect(result).toContain('Decision["CheckStatus"]');
+      expect(result).toContain('Success["CompleteDone"]');
+      expect(result).toContain('Retry["RetryAgain"]');
+      expect(result).toContain('End["EndFinished"]');
       // Arrows should be preserved
       expect(result).toContain('-->');
       expect(result).toContain('|"Yes: \'Success\'"|'); // Edge labels should be preserved
@@ -164,8 +165,8 @@ describe('Mermaid Diagram Sanitizer', () => {
       const result = sanitizeMermaidDiagram(input);
       
       expect(result).toContain('sequenceDiagram');
-      expect(result).toContain('participant A as "User Client"');
-      expect(result).toContain('participant B as "Server API"');
+      expect(result).toContain('participant A as "UserClient"');
+      expect(result).toContain('participant B as "ServerAPI"');
     });
 
     it('should handle empty lines and whitespace', () => {
@@ -181,8 +182,8 @@ describe('Mermaid Diagram Sanitizer', () => {
       
       // Should preserve empty lines
       expect(result.split('\n')).toHaveLength(7);
-      expect(result).toContain('A["Node 1"]');
-      expect(result).toContain('B["Node 2"]');
+      expect(result).toContain('A["Node"]');
+      expect(result).toContain('B["Node"]');
     });
 
     it('should handle invalid input gracefully', () => {
@@ -204,9 +205,9 @@ describe('Mermaid Diagram Sanitizer', () => {
       
       expect(result).toContain('A["node"]'); // Empty label gets fallback
       expect(result).toContain('B["node"]'); // Whitespace only gets fallback
-      expect(result).toContain('C["n123Start"]'); // Number prefix handled
+      expect(result).toContain('C["Start"]'); // Numbers removed
       expect(result).toContain('D["node"]'); // Fallback for invalid content
-      expect(result).toContain('E["Multiple spaces here"]'); // Normalized whitespace
+      expect(result).toContain('E["Multiplespaceshere"]'); // Spaces removed
     });
 
     it('should handle unicode and special characters', () => {
@@ -217,9 +218,9 @@ describe('Mermaid Diagram Sanitizer', () => {
 
       const result = sanitizeMermaidDiagram(input);
       
-      expect(result).toContain('A["Unicode 🚀 rocket"]');
-      expect(result).toContain('B["Accents café naïve"]');
-      expect(result).toContain('C["Math α β γ"]'); // + symbols removed
+      expect(result).toContain('A["Unicoderocket"]'); // Emoji and spaces removed
+      expect(result).toContain('B["Accentscafénaïve"]'); // Accented letters preserved, spaces/punctuation removed
+      expect(result).toContain('C["Mathαβγ"]'); // + and = symbols removed, Greek letters preserved
     });
 
     it('should handle nested quotes and complex escaping', () => {
@@ -230,9 +231,9 @@ describe('Mermaid Diagram Sanitizer', () => {
 
       const result = sanitizeMermaidDiagram(input);
       
-      expect(result).toContain('A["Text with nested quotes and backticks"]');
-      expect(result).toContain('B["Single quoted text with parens"]');
-      expect(result).toContain('C["Mixed test with brackets"]');
+      expect(result).toContain('A["Textwithnestedquotesandbackticks"]');
+      expect(result).toContain('B["Singlequotedtextwithparens"]');
+      expect(result).toContain('C["Mixedtestwithbrackets"]');
     });
   });
 
@@ -263,11 +264,11 @@ End of analysis.`;
       expect(result).toContain('End of analysis.');
       
       // Should have sanitized diagram content
-      expect(result).toContain('A["Start Process"]');
-      expect(result).toContain('B["Middle Step"]');
-      expect(result).toContain('C["Decision YesNo"]'); // Slash is removed by sanitization
-      expect(result).toContain('X["Input data"]');
-      expect(result).toContain('Y["Output result"]');
+      expect(result).toContain('A["StartProcess"]');
+      expect(result).toContain('B["MiddleStep"]');
+      expect(result).toContain('C["DecisionYesNo"]'); // Slash is removed by sanitization
+      expect(result).toContain('X["Inputdata"]');
+      expect(result).toContain('Y["Outputresult"]');
       
       // Should preserve arrows and structure
       expect(result).toContain('-->');
@@ -308,9 +309,9 @@ graph LR
       const result = sanitizeMermaidDiagramsInResponse(input);
       
       // All diagrams should be sanitized
-      expect(result).toContain('A["Bad Node"]');
-      expect(result).toContain('participant X as "User Client"');
-      expect(result).toContain('Z["Test Value"]');
+      expect(result).toContain('A["BadNode"]');
+      expect(result).toContain('participant X as "UserClient"');
+      expect(result).toContain('Z["TestValue"]');
       
       // Structure should be preserved
       expect(result).toContain('First diagram:');

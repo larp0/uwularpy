@@ -336,11 +336,12 @@ export function sanitizeMermaidDiagram(mermaidDiagram: string): string {
 }
 
 /**
- * Sanitize individual node label by removing problematic symbols.
- * Keeps alphanumeric characters, spaces, hyphens, and underscores.
+ * Sanitize individual node label by removing all non-letter characters.
+ * Only keeps letters (a-z, A-Z, including accented characters).
+ * Removes numbers, spaces, and all special symbols.
  * 
  * @param label - The original node label
- * @returns The sanitized label
+ * @returns The sanitized label containing only letters
  */
 export function sanitizeNodeLabel(label: string): string {
   if (typeof label !== 'string') {
@@ -351,31 +352,13 @@ export function sanitizeNodeLabel(label: string): string {
     return 'node';
   }
 
-  // Remove problematic symbols while preserving meaningful content
-  let sanitized = label
-    // Remove quotes, parentheses, brackets, braces
-    .replace(/["'`()[\]{}]/g, '')
-    // Remove colons, semicolons, commas that can break Mermaid syntax
-    .replace(/[;:,]/g, '')
-    // Remove pipe symbols (used for Mermaid syntax)
-    .replace(/\|/g, '')
-    // Remove backslashes and forward slashes
-    .replace(/[\\\/]/g, '')
-    // Remove other symbols that can cause parsing issues
-    .replace(/[<>&$#@!%^*+=~?]/g, '')
-    // Replace multiple spaces with single space
-    .replace(/\s+/g, ' ')
-    // Trim whitespace
-    .trim();
+  // Keep only letters (a-z, A-Z, including Unicode letters like accented characters and Greek)
+  // This removes numbers, spaces, punctuation, and all special symbols
+  let sanitized = label.replace(/[^a-zA-Z\u00C0-\u017F\u0100-\u024F\u0370-\u03FF]/g, '');
 
-  // If label becomes empty, provide a fallback
+  // If label becomes empty after removing all non-letters, provide a fallback
   if (!sanitized) {
     sanitized = 'node';
-  }
-
-  // Ensure label doesn't start with a number (Mermaid requirement)
-  if (sanitized.match(/^\d/)) {
-    sanitized = 'n' + sanitized;
   }
 
   return sanitized;
